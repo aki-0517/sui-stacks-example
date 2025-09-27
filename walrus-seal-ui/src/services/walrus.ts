@@ -42,12 +42,23 @@ export class WalrusService implements WalrusClient {
       }
 
       const result = await response.json();
+      
+      // Handle Walrus API response format
+      let blobData;
+      if (result.newlyCreated) {
+        blobData = result.newlyCreated;
+      } else if (result.alreadyCertified) {
+        blobData = result.alreadyCertified;
+      } else {
+        throw new Error(`Unexpected Walrus API response format: ${JSON.stringify(result)}`);
+      }
+      
       return {
-        blobId: result.blobId || result.blob_id,
-        suiObjectId: result.suiObjectId || result.sui_object_id,
+        blobId: blobData.blobObject?.blobId || blobData.blobId,
+        suiObjectId: blobData.blobObject?.id || blobData.blobObject?.sui_object_id,
         epochs: options.epochs,
-        cost: result.cost || 0,
-        gasUsed: result.gasUsed || result.gas_used
+        cost: blobData.cost || 0,
+        gasUsed: blobData.gasUsed || blobData.gas_used || 0
       };
     } catch (error) {
       console.error('Walrus store error:', error);
@@ -72,23 +83,39 @@ export class WalrusService implements WalrusClient {
 
   async status(blobId: string): Promise<WalrusBlobStatus> {
     try {
-      const response = await fetch(`${this.config.aggregator}/v1/blobs/${blobId}/status`);
+      // Note: Status API is not available on aggregator, only on storage nodes
+      // We'll attempt to read the blob to verify its existence instead
+      const response = await fetch(`${this.config.aggregator}/v1/blobs/${blobId}`, {
+        method: 'HEAD' // Use HEAD to check existence without downloading content
+      });
       
-      if (!response.ok) {
+      if (response.ok) {
+        // Blob exists and is accessible
+        return {
+          id: blobId,
+          status: 'available',
+          epochs: 0, // Unknown from aggregator
+          expiry: undefined,
+          size: parseInt(response.headers.get('content-length') || '0'),
+          confirmed: true,
+          availability: 1.0,
+          mimeType: response.headers.get('content-type') || 'application/octet-stream'
+        };
+      } else if (response.status === 404) {
+        // Blob not found or not yet available
+        return {
+          id: blobId,
+          status: 'not_found',
+          epochs: 0,
+          expiry: undefined,
+          size: 0,
+          confirmed: false,
+          availability: 0,
+          mimeType: undefined
+        };
+      } else {
         throw new Error(`Status check failed: ${response.statusText}`);
       }
-
-      const data = await response.json();
-      return {
-        id: blobId,
-        status: data.status,
-        epochs: data.epochs,
-        expiry: data.expiry ? new Date(data.expiry) : undefined,
-        size: data.size,
-        confirmed: data.confirmed,
-        availability: data.availability || 1.0,
-        mimeType: data.mimeType || data.mime_type
-      };
     } catch (error) {
       console.error('Walrus status error:', error);
       throw error;
@@ -145,11 +172,23 @@ export class WalrusService implements WalrusClient {
       }
 
       const result = await response.json();
+      
+      // Handle Walrus Quilt API response format
+      const blobStoreResult = result.blobStoreResult;
+      let blobData;
+      if (blobStoreResult?.newlyCreated) {
+        blobData = blobStoreResult.newlyCreated;
+      } else if (blobStoreResult?.alreadyCertified) {
+        blobData = blobStoreResult.alreadyCertified;
+      } else {
+        throw new Error('Unexpected Walrus Quilt API response format');
+      }
+      
       return {
-        quiltId: result.quiltId || result.quilt_id,
-        patches: result.patches || [],
-        totalSize: result.totalSize || result.total_size,
-        cost: result.cost || 0
+        quiltId: blobData.blobObject?.blobId || blobData.blobId,
+        patches: result.storedQuiltBlobs || [],
+        totalSize: blobData.blobObject?.size || 0,
+        cost: blobData.cost || 0
       };
     } catch (error) {
       console.error('Walrus store quilt error:', error);
