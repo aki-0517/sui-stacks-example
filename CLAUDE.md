@@ -124,3 +124,11 @@ Network endpoints are hardcoded in constants but can be overridden via environme
 - Network configurations use HTTPS endpoints only
 
 The application serves as a complete integration test suite for both Walrus and Seal protocols, demonstrating real-world usage patterns without any mocked functionality.
+
+## Documentation References
+
+**Error Troubleshooting**: When encountering errors with Walrus or Seal protocols, refer to the official documentation:
+- **Seal Documentation**: `docs/seal/` - Contains comprehensive guides for Seal protocol integration
+- **Walrus Documentation**: `docs/walrus/` - Contains complete Walrus protocol documentation
+
+These directories contain the authoritative documentation for both protocols and should be consulted when debugging issues or understanding protocol behavior.
