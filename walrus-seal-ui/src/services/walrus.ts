@@ -32,8 +32,8 @@ export class WalrusService implements WalrusClient {
         formData.append('attributes', JSON.stringify(options.attributes));
       }
 
-      const response = await fetch(`${this.config.publisher}/v1/store`, {
-        method: 'POST',
+      const response = await fetch(`${this.config.publisher}/v1/blobs`, {
+        method: 'PUT',
         body: formData
       });
 
@@ -150,8 +150,8 @@ export class WalrusService implements WalrusClient {
       formData.append('epochs', options.epochs.toString());
       if (options.permanent) formData.append('permanent', 'true');
 
-      const response = await fetch(`${this.config.publisher}/v1/store-quilt`, {
-        method: 'POST',
+      const response = await fetch(`${this.config.publisher}/v1/quilts`, {
+        method: 'PUT',
         body: formData
       });
 
