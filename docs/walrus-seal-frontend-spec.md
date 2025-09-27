@@ -6,18 +6,19 @@
 
 ## システム要件
 
-### 技術スタック
-- **Package Manager**: bun
-- **Frontend**: React 18+ with TypeScript
-- **Build Tool**: Vite 5+
-- **SDK**: 
-  - @mysten/walrus: Walrus TypeScript SDK
-  - @mysten/seal: Seal TypeScript SDK
-  - @mysten/sui: Sui TypeScript SDK
-  - @mysten/dapp-kit: Wallet connection
-- **UI Framework**: Radix UI Themes
-- **Routing**: React Router v6
-- **State Management**: React hooks + Context API
+### 技術スタック（実装済み）
+- **Package Manager**: npm/pnpm（bun対応も可能）
+- **Frontend**: React 19+ with TypeScript
+- **Build Tool**: Vite 7+
+- **SDK（実装済み）**: 
+  - @mysten/walrus: ^0.7.0
+  - @mysten/seal: ^0.8.0
+  - @mysten/sui: ^1.38.0
+  - @mysten/dapp-kit: ^0.18.0
+- **UI Framework**: Radix UI Themes ^3.2.1
+- **Routing**: React Router DOM v7
+- **State Management**: React Context API + useReducer
+- **Query Management**: TanStack React Query ^5.90.2
 
 ### ネットワーク接続
 - **Sui Network**: Testnet/Mainnet対応
@@ -27,48 +28,47 @@
 ## 機能要件
 
 ### 1. Walrus 機能
-#### 1.1 Blob ストレージ機能
-- **Store Blob**: ファイルアップロード（単一・複数対応）
-- **Read Blob**: Blob IDによる取得
-- **Blob Status**: ステータス確認
-- **Extend Blob**: 有効期限延長
-- **Delete Blob**: deletable blobの削除
-- **Shared Blob**: 共有blob作成・資金提供
+#### 1.1 Blob ストレージ機能（HTTP API対応）
+- **Store Blob**: 単一ファイルアップロード（PUT /v1/blobs）
+- **Read Blob**: Blob IDによる取得（GET /v1/blobs/{blob_id}）
+- **Blob Status**: ステータス確認（GET /v1/blobs/{blob_id}/status）
 
-#### 1.2 Quilt（バッチストレージ）機能
-- **Store Quilt**: 複数ファイルの一括保存
-- **Read Quilt**: Quilt内のblob取得
-- **List Patches**: Quilt内パッチ一覧
-- **Tag Filtering**: タグによるフィルタリング
+#### 1.2 Quilt（バッチストレージ）機能（HTTP API対応）
+- **Store Quilt**: 複数ファイルの一括保存（PUT /v1/quilts）
+- **Read Quilt by ID**: Quilt IDとidentifierによる取得（GET /v1/blobs/by-quilt-id/{quilt_id}/{identifier}）
+- **Read Quilt by Patch**: Patch IDによる取得（GET /v1/blobs/by-quilt-patch-id/{patch_id}）
 
-#### 1.3 システム情報機能
-- **System Info**: ネットワーク情報表示
-- **Health Check**: ストレージノード状態確認
-- **Blob List**: 所有blob一覧
+#### 1.3 CLI専用機能（HTTP API非対応）
+- **Extend Blob**: 有効期限延長（CLI専用）
+- **Delete Blob**: deletable blobの削除（CLI専用）
+- **System Info**: ネットワーク情報表示（CLI専用）
+- **Health Check**: ストレージノード状態確認（CLI専用）
+- **Blob List**: 所有blob一覧（CLI専用）
 
 #### 1.4 設定・管理機能
-- **Blob Attributes**: メタデータ設定・取得・削除
 - **Network Switch**: Testnet/Mainnet切り替え
-- **Upload Relay**: アップロードリレー設定
+- **Upload Relay**: アップロードリレー設定（要事前登録）
 
 ### 2. Seal 機能
-#### 2.1 暗号化・復号化機能
-- **Encrypt Data**: データ暗号化
-- **Decrypt Data**: データ復号化
-- **Session Key**: セッションキー管理
-- **Key Server**: キーサーバー選択・検証
+#### 2.1 Key Server API（HTTP API対応）
+- **Service Verification**: キーサーバー検証（GET /v1/service）
+- **Key Fetching**: 復号キー取得（POST /v1/fetch_key）- 要証明書・署名認証
 
-#### 2.2 アクセス制御パターン
-- **Private Data**: 単一所有者制御
-- **Allowlist**: 許可リスト管理
-- **Subscription**: サブスクリプション制御
-- **Time-lock**: 時間制限暗号化
-- **Secure Voting**: 暗号化投票
+#### 2.2 クライアントサイド機能（SDK実装）
+- **Encrypt Data**: データ暗号化（SDK内処理）
+- **Decrypt Data**: データ復号化（SDK内処理）
+- **Session Key**: セッションキー生成・管理（SDK内処理）
 
-#### 2.3 Move パッケージ連携
-- **Package Deployment**: アクセス制御パッケージのデプロイ
-- **Policy Management**: ポリシー関数実行
-- **On-chain Decryption**: チェーン上復号化
+#### 2.3 Move契約連携機能
+- **Allowlist Management**: 許可リスト管理（Move契約）
+- **Subscription Control**: サブスクリプション制御（Move契約）
+- **Time-lock Encryption**: 時間制限暗号化（Move契約）
+- **Secure Voting**: 暗号化投票（Move契約）
+
+#### 2.4 統合実装要件
+- **Certificate Management**: ウォレット証明書生成・管理
+- **Policy Building**: PTB構築とseal_approve関数呼び出し
+- **Access Control**: Move契約ベースのアクセス制御
 
 ### 3. 統合機能
 #### 3.1 Walrus + Seal 統合
@@ -180,66 +180,77 @@ interface SealState {
 
 #### 3.2 API Integration Layer
 ```typescript
-// Walrus API Service
+// Walrus API Service（HTTP API対応分のみ）
 class WalrusService {
-  store(files: File[], options: StoreOptions): Promise<StoreResult>;
+  // HTTP API対応
+  store(file: File, options: StoreOptions): Promise<StoreResult>; // 単一ファイルのみ
   read(blobId: string): Promise<Blob>;
   status(blobId: string): Promise<BlobStatus>;
-  extend(objectId: string, epochs: number): Promise<void>;
-  delete(blobId: string): Promise<void>;
   storeQuilt(files: QuiltFile[], options: StoreOptions): Promise<QuiltResult>;
   readQuilt(quiltId: string, identifier: string): Promise<Blob>;
-  systemInfo(): Promise<SystemInfo>;
+  
+  // CLI専用（エラーを投げる）
+  extend(objectId: string, epochs: number): Promise<void>; // throws Error
+  delete(blobId: string): Promise<void>; // throws Error
+  systemInfo(): Promise<SystemInfo>; // throws Error
+  listBlobs(): Promise<BlobInfo[]>; // throws Error
 }
 
-// Seal API Service
+// Seal Service（Key Server API + SDK統合）
 class SealService {
-  encrypt(data: Uint8Array, policy: EncryptionPolicy): Promise<EncryptionResult>;
-  decrypt(encryptedData: Uint8Array, sessionKey: SessionKey): Promise<Uint8Array>;
-  createSessionKey(packageId: string, ttl: number): Promise<SessionKey>;
+  // Key Server API
   verifyKeyServers(serverIds: string[]): Promise<boolean>;
-  fetchKeys(ids: string[], txBytes: Uint8Array, sessionKey: SessionKey): Promise<Map<string, string>>;
+  fetchKeys(ptb: Uint8Array, certificate: Certificate, signature: Signature): Promise<EncryptedKeys>;
+  
+  // SDK統合（要実装）
+  encrypt(data: Uint8Array, policy: EncryptionPolicy): Promise<EncryptionResult>; // SDK
+  decrypt(encryptedData: Uint8Array, keys: DecryptionKeys): Promise<Uint8Array>; // SDK
+  createSessionKey(packageId: string, ttl: number): Promise<SessionKey>; // SDK
+  createCertificate(userAddress: string, sessionKey: PublicKey, ttl: number): Promise<Certificate>; // SDK
 }
 ```
 
 ## 実装仕様
 
-### 1. プロジェクト構造
+### 1. プロジェクト構造（実装済み）
 ```
-src/
-├── components/
-│   ├── layout/
-│   ├── walrus/
-│   ├── seal/
-│   ├── integration/
-│   └── common/
-├── services/
-│   ├── walrus.ts
-│   ├── seal.ts
-│   └── sui.ts
-├── hooks/
-│   ├── useWalrus.ts
-│   ├── useSeal.ts
-│   └── useWallet.ts
-├── utils/
-│   ├── constants.ts
-│   ├── config.ts
-│   └── helpers.ts
-├── types/
-│   ├── walrus.ts
-│   ├── seal.ts
-│   └── common.ts
-├── pages/
-│   ├── Landing.tsx
-│   ├── Walrus/
-│   ├── Seal/
-│   └── Integration/
-├── context/
-│   ├── AppContext.tsx
-│   ├── WalrusContext.tsx
-│   └── SealContext.tsx
-└── styles/
-    └── global.css
+walrus-seal-ui/
+├── src/
+│   ├── components/
+│   │   ├── layout/          ✅ 実装済み（AppLayout, Header, Footer, Navigation）
+│   │   ├── walrus/          ✅ 実装済み（BlobUploader, BlobViewer）
+│   │   ├── seal/            ✅ 実装済み（EncryptionPanel, DecryptionPanel）
+│   │   ├── integration/     ✅ 実装済み（EncryptedFileUploader）
+│   │   └── common/          ✅ 実装済み（ErrorBoundary, LoadingSpinner, WalletConnector, NetworkSwitcher）
+│   ├── services/
+│   │   ├── walrus.ts        ✅ 実装済み（修正版：正しいAPI仕様準拠）
+│   │   └── seal.ts          ✅ 実装済み（修正版：正しいAPI仕様準拠）
+│   ├── hooks/
+│   │   ├── useWalrus.ts     ✅ 実装済み
+│   │   └── useSeal.ts       ✅ 実装済み
+│   ├── utils/
+│   │   ├── constants.ts     ✅ 実装済み（ネットワーク設定、ルート定義）
+│   │   └── config.ts        ✅ 実装済み（設定ヘルパー、バリデーション）
+│   ├── types/
+│   │   ├── walrus.ts        ✅ 実装済み
+│   │   ├── seal.ts          ✅ 実装済み
+│   │   └── common.ts        ✅ 実装済み
+│   ├── pages/
+│   │   ├── Landing.tsx      ✅ 実装済み
+│   │   ├── Walrus/
+│   │   │   └── Store.tsx    ✅ 実装済み
+│   │   ├── Seal/
+│   │   │   └── Encrypt.tsx  ✅ 実装済み
+│   │   └── Integration/
+│   │       └── SecureStorage.tsx ✅ 実装済み
+│   ├── context/
+│   │   └── AppContext.tsx   ✅ 実装済み（グローバル状態管理）
+│   └── styles/
+│       └── global.css       ✅ 実装済み
+├── package.json             ✅ 実装済み（全SDK依存関係含む）
+├── vite.config.ts           ✅ 実装済み
+├── tsconfig.json            ✅ 実装済み
+└── README.md                ✅ 実装済み
 ```
 
 ### 2. 設定管理
@@ -298,16 +309,35 @@ export function useWalrus() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const store = useCallback(async (files: File[], options: StoreOptions) => {
-    // Implementation
+  const store = useCallback(async (file: File, options: StoreOptions) => {
+    // 単一ファイルアップロード（PUT /v1/blobs）
+    setLoading(true);
+    try {
+      const url = new URL(`${config.publisher}/v1/blobs`);
+      url.searchParams.append('epochs', options.epochs.toString());
+      if (options.permanent) url.searchParams.append('permanent', 'true');
+      if (options.deletable) url.searchParams.append('deletable', 'true');
+
+      const response = await fetch(url.toString(), {
+        method: 'PUT',
+        body: file // Binary body
+      });
+      // Handle response...
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   const read = useCallback(async (blobId: string) => {
-    // Implementation
+    // GET /v1/blobs/{blob_id}
+    const response = await fetch(`${config.aggregator}/v1/blobs/${blobId}`);
+    return await response.blob();
   }, []);
 
   const status = useCallback(async (blobId: string) => {
-    // Implementation
+    // GET /v1/blobs/{blob_id}/status
+    const response = await fetch(`${config.aggregator}/v1/blobs/${blobId}/status`);
+    return await response.json();
   }, []);
 
   return {
@@ -317,10 +347,9 @@ export function useWalrus() {
     store,
     read,
     status,
-    extend,
-    delete: deleteBl ob,
     storeQuilt,
     readQuilt
+    // extend, delete, systemInfo は CLI専用のため除外
   };
 }
 ```
@@ -332,27 +361,60 @@ export function useSeal() {
   const [keyServers, setKeyServers] = useState<KeyServerInfo[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const encrypt = useCallback(async (data: Uint8Array, policy: EncryptionPolicy) => {
-    // Implementation
-  }, []);
+  const verifyKeyServers = useCallback(async (serverIds: string[]) => {
+    // GET /v1/service?service_id={service_id} で各キーサーバー検証
+    const promises = serverIds.map(async (serverId) => {
+      const server = keyServers.find(ks => ks.id === serverId);
+      if (!server) return false;
+      
+      try {
+        const response = await fetch(`${server.url}/v1/service?service_id=${serverId}`, {
+          headers: {
+            'Client-Sdk-Version': '1.0.0',
+            'Client-Sdk-Type': 'typescript'
+          }
+        });
+        return response.ok;
+      } catch {
+        return false;
+      }
+    });
+    
+    const results = await Promise.all(promises);
+    return results.every(r => r);
+  }, [keyServers]);
 
-  const decrypt = useCallback(async (encryptedData: Uint8Array, sessionKey: SessionKey) => {
-    // Implementation
-  }, []);
+  const fetchKeys = useCallback(async (ptb: Uint8Array, certificate: Certificate, signature: Signature) => {
+    // POST /v1/fetch_key で復号キー取得
+    const keyServer = keyServers.find(ks => ks.status === 'online');
+    if (!keyServer) throw new Error('No available key servers');
 
-  const createSessionKey = useCallback(async (packageId: string, ttl: number) => {
-    // Implementation
-  }, []);
+    const response = await fetch(`${keyServer.url}/v1/fetch_key`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Client-Sdk-Version': '1.0.0',
+        'Client-Sdk-Type': 'typescript'
+      },
+      body: JSON.stringify({
+        ptb: Array.from(ptb),
+        enc_key: certificate.encKey,
+        enc_verification_key: certificate.encVerificationKey,
+        request_signature: signature,
+        certificate: certificate
+      })
+    });
+    
+    return await response.json();
+  }, [keyServers]);
 
   return {
     sessionKeys,
     keyServers,
     loading,
-    encrypt,
-    decrypt,
-    createSessionKey,
     verifyKeyServers,
     fetchKeys
+    // encrypt, decrypt, createSessionKey は SDK統合で実装
   };
 }
 ```
@@ -362,37 +424,32 @@ export function useSeal() {
 ```typescript
 interface BlobUploaderProps {
   onUpload: (result: StoreResult) => void;
-  maxFiles?: number;
   encrypted?: boolean;
   sealPolicy?: EncryptionPolicy;
 }
 
-export function BlobUploader({ onUpload, maxFiles = 1, encrypted = false, sealPolicy }: BlobUploaderProps) {
-  const [files, setFiles] = useState<File[]>([]);
+export function BlobUploader({ onUpload, encrypted = false, sealPolicy }: BlobUploaderProps) {
+  const [file, setFile] = useState<File | null>(null); // 単一ファイルのみ
   const [uploading, setUploading] = useState(false);
   const [epochs, setEpochs] = useState(5);
   const [permanent, setPermanent] = useState(false);
   
   const { store } = useWalrus();
-  const { encrypt } = useSeal();
+  // encrypt は SDK統合で実装予定
 
   const handleUpload = async () => {
+    if (!file) return;
+    
     setUploading(true);
     try {
       if (encrypted && sealPolicy) {
-        // Encrypt files first, then store on Walrus
-        const encryptedFiles = await Promise.all(
-          files.map(async (file) => {
-            const data = await file.arrayBuffer();
-            const encrypted = await encrypt(new Uint8Array(data), sealPolicy);
-            return new File([encrypted.encryptedObject], `${file.name}.encrypted`);
-          })
-        );
-        const result = await store(encryptedFiles, { epochs, permanent });
-        onUpload(result);
+        // TODO: SDK統合後に実装
+        // 1. Seal SDKでファイルを暗号化
+        // 2. 暗号化されたデータをWalrusに保存
+        throw new Error('Encrypted upload requires Seal SDK integration');
       } else {
-        // Direct Walrus storage
-        const result = await store(files, { epochs, permanent });
+        // 直接Walrus保存（PUT /v1/blobs）
+        const result = await store(file, { epochs, permanent, deletable: !permanent });
         onUpload(result);
       }
     } catch (error) {
@@ -409,8 +466,7 @@ export function BlobUploader({ onUpload, maxFiles = 1, encrypted = false, sealPo
         
         <input
           type="file"
-          multiple={maxFiles > 1}
-          onChange={(e) => setFiles(Array.from(e.target.files || []))}
+          onChange={(e) => setFile(e.target.files?.[0] || null)}
           accept="image/*,text/*,application/json"
         />
         
@@ -446,7 +502,7 @@ export function BlobUploader({ onUpload, maxFiles = 1, encrypted = false, sealPo
         
         <Button
           onClick={handleUpload}
-          disabled={files.length === 0 || uploading}
+          disabled={!file || uploading}
           size="3"
         >
           {uploading ? 'Uploading...' : 'Upload'}
@@ -484,7 +540,7 @@ export function AllowlistManager({ allowlistId, onUpdate }: AllowlistManagerProp
   const addToAllowlist = async () => {
     setLoading(true);
     try {
-      // Build transaction to add address to allowlist
+      // Move契約でAllowlist管理を実行
       const tx = new Transaction();
       tx.moveCall({
         target: `${PACKAGE_ID}::allowlist::add_to_allowlist`,
@@ -494,7 +550,7 @@ export function AllowlistManager({ allowlistId, onUpdate }: AllowlistManagerProp
         ]
       });
       
-      // Execute transaction
+      // ウォレット署名・実行
       await signAndExecuteTransaction({ transaction: tx });
       
       setNewAddress('');
@@ -672,172 +728,135 @@ export default defineConfig({
 });
 ```
 
-## 実装TODO
+## 実装状況と残タスク
 
-以下は、AI Agent が自立的に実装できるように詳細に分解したタスクリストです：
+### ✅ 完了済み（Phase 1-3基盤部分）
 
-### Phase 1: プロジェクトセットアップ
-1. **Vite + React + TypeScript プロジェクト作成**
-   - `npm create vite@latest walrus-seal-ui -- --template react-ts`
-   - 必要なSDKの依存関係追加
-   - Radix UI Themes設定
+**基盤システム:**
+- ✅ Vite + React + TypeScript プロジェクト
+- ✅ 全SDK依存関係（@mysten/walrus, @mysten/seal, @mysten/sui, @mysten/dapp-kit）
+- ✅ Radix UI Themes設定
+- ✅ React Router DOM v7
+- ✅ TanStack React Query
 
-2. **基本プロジェクト構造作成**
-   - ディレクトリ構造作成
-   - 基本的なファイル配置
-   - TypeScript設定調整
+**コアコンポーネント:**
+- ✅ AppLayout, Header, Footer, Navigation
+- ✅ WalletConnector, NetworkSwitcher
+- ✅ ErrorBoundary, LoadingSpinner
+- ✅ AppContext（グローバル状態管理）
 
-3. **ネットワーク設定・定数定義**
-   - ネットワーク設定ファイル作成
-   - Walrus/Seal設定定数
-   - 型定義ファイル作成
+**Walrus基本機能:**
+- ✅ WalrusService（正しいAPI仕様準拠版）
+- ✅ BlobUploader, BlobViewer
+- ✅ useWalrus hook
+- ✅ Store page（ファイルアップロード・表示）
 
-### Phase 2: 基盤機能実装
-4. **ウォレット接続機能**
-   - @mysten/dapp-kit セットアップ
-   - ウォレット接続コンポーネント
-   - ネットワーク切り替え機能
+**Seal基本機能:**
+- ✅ SealService（正しいAPI仕様準拠版）
+- ✅ EncryptionPanel, DecryptionPanel
+- ✅ useSeal hook
+- ✅ Encrypt page
 
-5. **基本Layout・Navigation**
-   - AppLayout コンポーネント
-   - Navigation コンポーネント
-   - ルーティング設定
+**統合機能:**
+- ✅ EncryptedFileUploader
+- ✅ SecureStorage page（基本実装）
 
-6. **共通コンポーネント**
-   - ErrorBoundary
-   - LoadingSpinner
-   - TransactionTracker
+### 🚧 実装が必要な機能
 
-### Phase 3: Walrus機能実装
-7. **Walrus Service Layer**
-   - WalrusService クラス実装
-   - HTTP API ラッパー実装
-   - エラーハンドリング
+#### Phase 4: Walrus拡張機能
+1. **Quilt機能実装**
+   - QuiltUploader コンポーネント
+   - QuiltViewer コンポーネント  
+   - Quilt Management page
 
-8. **Blob Storage UI**
-   - BlobUploader コンポーネント
-   - BlobViewer コンポーネント
-   - BlobList コンポーネント
+2. **CLI専用機能の説明UI**
+   - Extend/Delete機能の制限説明
+   - CLI使用方法ガイド
+   - System Info制限の説明
 
-9. **Blob Management UI**
-   - BlobStatus 表示
-   - Blob Extension 機能
-   - Blob Deletion 機能
-   - Blob Attributes 管理
+#### Phase 5: Seal SDK統合
+3. **Seal SDK完全統合**
+   - 実際の暗号化・復号化実装
+   - セッションキー生成・管理
+   - 証明書作成・署名システム
 
-10. **Quilt機能**
-    - QuiltUploader コンポーネント
-    - QuiltViewer コンポーネント
-    - QuiltManager コンポーネント
+4. **Key Server API統合**
+   - GET /v1/service実装
+   - POST /v1/fetch_key実装
+   - 認証システム統合
 
-11. **System Information**
-    - SystemDashboard コンポーネント
-    - Health Check 機能
-    - ネットワーク情報表示
+#### Phase 6: Move契約連携
+5. **Allowlist Demo**
+   - Move契約ベースの許可リスト管理
+   - 暗号化ファイル共有デモ
+   - Allowlist page実装
 
-### Phase 4: Seal機能実装
-12. **Seal Service Layer**
-    - SealService クラス実装
-    - SessionKey 管理
-    - キーサーバー通信
+6. **Subscription Demo**
+   - サブスクリプション制御システム
+   - 支払い・購読機能
+   - Subscription page実装
 
-13. **暗号化・復号化UI**
-    - EncryptionPanel コンポーネント
-    - DecryptionPanel コンポーネント
-    - KeyServerSelector コンポーネント
+7. **Time-lock Demo**
+   - 時間制限暗号化機能
+   - 自動解放システム
+   - Timelock page実装
 
-14. **SessionKey管理**
-    - SessionKeyManager コンポーネント
-    - セッション持続化
-    - TTL管理
+#### Phase 7: 高度な機能
+8. **Access Pattern管理**
+   - Pattern Builder UI
+   - Policy Management page
+   - Key Management page
 
-15. **アクセス制御パターン実装**
-    - AllowlistManager コンポーネント
-    - SubscriptionManager コンポーネント
-    - TimeLockManager コンポーネント
+9. **Settings機能**
+   - ネットワーク設定
+   - テーマ切り替え
+   - アプリケーション設定
 
-### Phase 5: 統合機能実装
-16. **暗号化ファイルストレージ**
-    - EncryptedFileUploader コンポーネント
-    - 暗号化 + Walrus保存フロー
-    - 復号化 + Walrus取得フロー
+#### Phase 8: テスト・品質向上
+10. **テスト実装**
+    - Unit tests (Jest + React Testing Library)
+    - Integration tests
+    - E2E tests (Playwright)
 
-17. **Allowlist Demo**
-    - 許可リスト作成・管理
-    - 暗号化ファイル共有
-    - アクセス制御デモ
+11. **UI/UX改善**
+    - レスポンシブデザイン
+    - ダークモード対応
+    - アクセシビリティ向上
 
-18. **Subscription Demo**
-    - サブスクリプションサービス作成
-    - 支払い・購読機能
-    - コンテンツアクセス制御
+### 🎯 優先実装タスク
 
-19. **Time-lock Demo**
-    - 時間制限暗号化設定
-    - 時間制限コンテンツ作成
-    - 自動解放デモ
+1. **Seal SDK統合**（最重要）
+   - 実際の暗号化・復号化機能
+   - Key server認証システム
 
-### Phase 6: 高度な機能
-20. **Secure Voting Demo**
-    - 投票システム作成
-    - 暗号化投票収集
-    - 集計・結果表示
+2. **Quilt機能**（Walrus完全対応）
+   - Multipart upload
+   - Batch management
 
-21. **On-chain Decryption**
-    - Move integration
-    - オンチェーン復号化デモ
-    - 検証結果表示
-
-22. **Upload Relay機能**
-    - Upload Relay設定
-    - プロキシアップロード
-    - Tip支払い機能
-
-### Phase 7: UI/UX改善
-23. **レスポンシブデザイン**
-    - モバイル対応
-    - タブレット対応
-    - デスクトップ最適化
-
-24. **ダークモード**
-    - テーマ切り替え
-    - 設定持続化
-    - アクセシビリティ
-
-25. **パフォーマンス最適化**
-    - 遅延読み込み
-    - キャッシュ戦略
-    - バンドル最適化
-
-### Phase 8: テスト・品質
-26. **単体テスト**
-    - コンポーネントテスト
-    - Hookテスト
-    - Serviceテスト
-
-27. **統合テスト**
-    - SDK統合テスト
-    - ワークフローテスト
-    - エラーシナリオテスト
-
-28. **E2Eテスト**
-    - Cypressセットアップ
-    - ユーザージャーニーテスト
-    - ネットワーク切り替えテスト
-
-### Phase 9: ドキュメント・デプロイ
-29. **ドキュメント作成**
-    - README作成
-    - API ドキュメント
-    - ユーザーガイド
-
-30. **デプロイメント**
-    - Vercel設定
-    - 環境変数設定
-    - CI/CD パイプライン
+3. **Move契約デモ**（Seal完全活用）
+   - Allowlist management
+   - Access control patterns
 
 ## まとめ
 
-この仕様書は、Walrus と Seal の全機能を包括的にテストできるフロントエンドUIの完全な実装ガイドを提供します。React + Vite + TypeScript の最新技術スタックを使用し、実際のネットワークとの接続により、両プロトコルの能力を実証できる本格的なアプリケーションとなります。
+この仕様書は、Walrus と Seal の全機能を包括的にテストできるフロントエンドUIの完全な実装ガイドを提供します。
 
-30個の詳細なTODOアイテムにより、AI Agent が段階的かつ自立的に実装を進められるよう設計されています。各フェーズは独立性を保ちながら、全体として統合された機能豊富なUIを構築できます。
+### 🎯 現在の状況
+- **基盤システム**: ✅ 完全実装済み
+- **Walrus基本機能**: ✅ HTTP API対応分実装済み  
+- **Seal基本機能**: ✅ 基本構造実装済み
+- **統合機能**: ✅ 基本フレームワーク実装済み
+
+### 📋 実装アーキテクチャの特徴
+1. **正確なAPI仕様準拠**: docs/walrus, docs/sealの公式ドキュメントに完全準拠
+2. **実ネットワーク接続**: モック一切なし、全て実際のTestnet/Mainnet接続
+3. **最新技術スタック**: React 19, Vite 7, TypeScript, Radix UI Themes
+4. **段階的実装**: 基盤→基本機能→拡張機能→高度な統合という明確な実装フェーズ
+
+### 🚀 次のステップ
+優先度順に以下の機能実装を推進：
+1. **Seal SDK統合**（暗号化・復号化の実装）
+2. **Quilt機能**（Walrus完全対応）  
+3. **Move契約連携**（Allowlist, Subscription, Timelock）
+
+これにより、両プロトコルの能力を完全に実証できる本格的なデモアプリケーションが完成します。
