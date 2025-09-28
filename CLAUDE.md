@@ -130,5 +130,7 @@ The application serves as a complete integration test suite for both Walrus and 
 **Error Troubleshooting**: When encountering errors with Walrus or Seal protocols, refer to the official documentation:
 - **Seal Documentation**: `docs/seal/` - Contains comprehensive guides for Seal protocol integration
 - **Walrus Documentation**: `docs/walrus/` - Contains complete Walrus protocol documentation
+- **TypeScript SDK Documentation**: `docs/ts-sdks/` - Contains TypeScript SDK documentation and examples
+  - **Sui TypeScript SDK**: `docs/ts-sdks/packages/docs/content/` - Contains Sui TypeScript SDK documentation
 
 These directories contain the authoritative documentation for both protocols and should be consulted when debugging issues or understanding protocol behavior.
