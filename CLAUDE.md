@@ -128,9 +128,27 @@ The application serves as a complete integration test suite for both Walrus and 
 ## Documentation References
 
 **Error Troubleshooting**: When encountering errors with Walrus or Seal protocols, refer to the official documentation:
-- **Seal Documentation**: `docs/seal/` - Contains comprehensive guides for Seal protocol integration
-- **Walrus Documentation**: `docs/walrus/` - Contains complete Walrus protocol documentation
-- **TypeScript SDK Documentation**: `docs/ts-sdks/` - Contains TypeScript SDK documentation and examples
-  - **Sui TypeScript SDK**: `docs/ts-sdks/packages/docs/content/` - Contains Sui TypeScript SDK documentation
 
-These directories contain the authoritative documentation for both protocols and should be consulted when debugging issues or understanding protocol behavior.
+- **Seal Protocol Documentation**: `docs/seal/docs/` - Contains comprehensive guides for Seal protocol integration
+  - Key files: `UsingSeal.md`, `Design.md`, `ExamplePatterns.md`, `SecurityBestPractices.md`
+  - Examples: `docs/seal/examples/frontend/` - React integration examples
+  - Move contracts: `docs/seal/examples/move/` - Smart contract patterns
+
+- **Walrus Protocol Documentation**: `docs/walrus/docs/book/` - Contains complete Walrus protocol documentation
+  - Usage guide: `usage/` - Client CLI, Web API, JSON API documentation
+  - Developer guide: `dev-guide/` - Components, costs, data security
+  - Setup: `setup/` - Installation and configuration
+
+- **TypeScript SDK Documentation**: `docs/ts-sdks/` - Contains TypeScript SDK documentation and examples
+  - **Sui TypeScript SDK**: `docs/ts-sdks/packages/typescript/` - Core Sui SDK
+  - **Seal TypeScript SDK**: `docs/ts-sdks/packages/seal/` - Seal encryption SDK
+  - **dApp Kit**: `docs/ts-sdks/packages/dapp-kit/` - React components and hooks
+  - **Integration Tests**: `docs/ts-sdks/packages/seal/test/unit/integration.test.ts` - Complete working examples
+
+- **Configuration Examples**:
+  - **Client Config**: `docs/walrus/setup/client_config_testnet.yaml` - Walrus testnet configuration
+  - **Key Server IDs**: Use verified object IDs from Seal documentation:
+    - Testnet: `0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75`, `0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8`
+    - Package ID: `0x8afa5d31dbaa0a8fb07082692940ca3d56b5e856c5126cb5a3693f0a4de63b82`
+
+These directories contain the authoritative documentation for both protocols and should be consulted when debugging issues or understanding protocol behavior. Always use the verified object IDs and package IDs from the official documentation to avoid initialization errors.

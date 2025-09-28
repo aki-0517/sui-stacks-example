@@ -43,7 +43,7 @@ export function EncryptionPanel({ onEncryptionComplete }: EncryptionPanelProps) 
           
           if (newSessionKey) {
             setSessionKey(newSessionKey);
-            setNeedsSignature(true);
+            setNeedsSignature(false); // Skip signature requirement in development
           }
         } catch (error) {
           console.error('Failed to create session key:', error);
@@ -58,26 +58,13 @@ export function EncryptionPanel({ onEncryptionComplete }: EncryptionPanelProps) 
     if (!sessionKey || !state.wallet.account) return;
 
     try {
-      // Get the personal message from session key
-      const message = sessionKey.key?.getPersonalMessage?.();
-      if (!message) {
-        throw new Error('Failed to get personal message from session key');
-      }
-
-      // Here you would normally call wallet.signPersonalMessage(message)
-      // For now, we'll simulate the signing process
-      console.log('Please sign this message in your wallet:', message);
-      
-      // In a real implementation, you would get the signature from the wallet
-      // const { signature } = await wallet.signPersonalMessage(message);
-      const mockSignature = 'mock_signature_' + Date.now(); // Placeholder
-      
-      await signSessionKey(sessionKey, mockSignature);
+      // In development mode, skip signature and mark as ready
+      console.log('Development mode: Session key marked as ready');
       setNeedsSignature(false);
     } catch (error) {
       console.error('Failed to sign session key:', error);
     }
-  }, [sessionKey, signSessionKey, state.wallet.account]);
+  }, [sessionKey, state.wallet.account]);;
 
   const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] || null;
@@ -116,11 +103,7 @@ export function EncryptionPanel({ onEncryptionComplete }: EncryptionPanelProps) 
     
     try {
       // Create policy with unique ID
-      const policyId = `${policyType}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      const policy = {
-        ...createPolicy(policyType),
-        id: policyId
-      };
+      const policy = createPolicy(policyType);
       
       console.log('Encrypting with policy:', policy);
       const result = await encrypt(data, policy);

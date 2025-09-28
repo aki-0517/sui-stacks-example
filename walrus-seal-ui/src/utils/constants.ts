@@ -12,15 +12,23 @@ export const NETWORK_CONFIG = {
     seal: {
       keyServers: [
         { 
-          id: '0x927a54e9ae803f82ebf480136a9bcff45101ccbe28b13f433c89f5181069d682', 
+          id: '0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75', 
           url: 'https://seal-testnet.mystenlabs.com',
           verified: true,
-          threshold: 2,
+          threshold: 1,
           publicKey: '0x03a...',
+          status: 'online' as const
+        },
+        { 
+          id: '0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8', 
+          url: 'https://seal-testnet.mystenlabs.com',
+          verified: true,
+          threshold: 1,
+          publicKey: '0x03b...',
           status: 'online' as const
         }
       ],
-      packageId: '0x927a54e9ae803f82ebf480136a9bcff45101ccbe28b13f433c89f5181069d682',
+      packageId: '0x8afa5d31dbaa0a8fb07082692940ca3d56b5e856c5126cb5a3693f0a4de63b82',
       defaultThreshold: 2,
       sessionTTL: 10,
       encryptionMode: 'HMAC-CTR'
@@ -53,7 +61,7 @@ export const NETWORK_CONFIG = {
       encryptionMode: 'HMAC-CTR'
     }
   }
-};
+};;
 
 export const APP_CONFIG = {
   walrus: {

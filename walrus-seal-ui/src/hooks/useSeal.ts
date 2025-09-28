@@ -12,12 +12,18 @@ export function useSeal() {
   const [sealService, setSealService] = useState<SealService | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [initializationPromise, setInitializationPromise] = useState<Promise<void> | null>(null);
 
   // Network dependency for service initialization
-
   useEffect(() => {
+    let isCancelled = false;
+    
     const initService = async () => {
       try {
+        setIsInitialized(false);
+        setError(null);
+        
         const { SuiClient, getFullnodeUrl } = await import('@mysten/sui/client');
         const networkUrl = state.network.current === 'testnet' 
           ? getFullnodeUrl('testnet')
@@ -25,15 +31,53 @@ export function useSeal() {
         const client = new SuiClient({ url: networkUrl });
         
         const service = new SealService(state.network.sealConfig, client);
-        setSealService(service);
+        
+        // Create the initialization promise and store it
+        const initPromise = service.initializeSealClient().then(() => {
+          if (!isCancelled) {
+            console.log('Seal service fully initialized');
+            setIsInitialized(true);
+            setSealService(service);
+          }
+        });
+        
+        if (!isCancelled) {
+          setInitializationPromise(initPromise);
+        }
+        
+        // Wait for initialization to complete
+        await initPromise;
+        
       } catch (error) {
-        console.error('Failed to initialize Seal service:', error);
-        setError('Failed to initialize Seal service');
+        if (!isCancelled) {
+          console.error('Failed to initialize Seal service:', error);
+          setError(`Failed to initialize Seal service: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          setIsInitialized(false);
+          setSealService(null);
+        }
       }
     };
 
     initService();
+    
+    return () => {
+      isCancelled = true;
+    };
   }, [state.network]);
+
+  const waitForInitialization = useCallback(async () => {
+    if (isInitialized && sealService) {
+      return;
+    }
+    
+    if (initializationPromise) {
+      await initializationPromise;
+    }
+    
+    if (!isInitialized || !sealService) {
+      throw new Error('Seal service failed to initialize');
+    }
+  }, [isInitialized, sealService, initializationPromise]);
 
   const handleError = useCallback((error: unknown, operation: string) => {
     const message = error instanceof Error ? error.message : `${operation} failed`;
@@ -48,16 +92,13 @@ export function useSeal() {
   }, [dispatch]);
 
   const encrypt = useCallback(async (data: Uint8Array, policy: SealEncryptionPolicy): Promise<SealEncryptionResult | null> => {
-    if (!sealService) {
-      handleError(new Error('Seal service not initialized'), 'encrypt');
-      return null;
-    }
-
     setLoading(true);
     clearError();
 
     try {
-      const result = await sealService.encrypt(data, policy);
+      await waitForInitialization();
+      
+      const result = await sealService!.encrypt(data, policy);
       
       // Store session key in global state
       dispatch({
@@ -72,14 +113,9 @@ export function useSeal() {
     } finally {
       setLoading(false);
     }
-  }, [sealService, handleError, clearError, dispatch]);
+  }, [waitForInitialization, sealService, handleError, clearError, dispatch]);
 
   const decrypt = useCallback(async (encryptedData: Uint8Array, sessionKey: SealSessionKey, txBytes?: Uint8Array): Promise<Uint8Array | null> => {
-    if (!sealService) {
-      handleError(new Error('Seal service not initialized'), 'decrypt');
-      return null;
-    }
-
     if (!txBytes) {
       handleError(new Error('Transaction bytes required for decryption'), 'decrypt');
       return null;
@@ -89,26 +125,24 @@ export function useSeal() {
     clearError();
 
     try {
-      return await sealService.decrypt(encryptedData, sessionKey, txBytes);
+      await waitForInitialization();
+      return await sealService!.decrypt(encryptedData, sessionKey, txBytes);
     } catch (error) {
       handleError(error, 'decrypt');
       return null;
     } finally {
       setLoading(false);
     }
-  }, [sealService, handleError, clearError]);
+  }, [waitForInitialization, sealService, handleError, clearError]);
 
   const createSessionKey = useCallback(async (packageId: string, ttl: number, userAddress?: string): Promise<SealSessionKey | null> => {
-    if (!sealService) {
-      handleError(new Error('Seal service not initialized'), 'createSessionKey');
-      return null;
-    }
-
     setLoading(true);
     clearError();
 
     try {
-      const sessionKey = await sealService.createSessionKey(packageId, ttl, userAddress);
+      await waitForInitialization();
+      
+      const sessionKey = await sealService!.createSessionKey(packageId, ttl, userAddress);
       
       // Store session key in global state
       dispatch({
@@ -123,19 +157,16 @@ export function useSeal() {
     } finally {
       setLoading(false);
     }
-  }, [sealService, handleError, clearError, dispatch]);
+  }, [waitForInitialization, sealService, handleError, clearError, dispatch]);
 
   const signSessionKey = useCallback(async (sessionKey: SealSessionKey, signature: string): Promise<boolean> => {
-    if (!sealService) {
-      handleError(new Error('Seal service not initialized'), 'signSessionKey');
-      return false;
-    }
-
     setLoading(true);
     clearError();
 
     try {
-      await sealService.signSessionKey(sessionKey, signature);
+      await waitForInitialization();
+      
+      await sealService!.signSessionKey(sessionKey, signature);
       
       // Update session key in global state
       dispatch({
@@ -150,185 +181,152 @@ export function useSeal() {
     } finally {
       setLoading(false);
     }
-  }, [sealService, handleError, clearError, dispatch]);
+  }, [waitForInitialization, sealService, handleError, clearError, dispatch]);
 
   const verifyKeyServers = useCallback(async (serverIds: string[]): Promise<boolean> => {
-    if (!sealService) {
-      handleError(new Error('Seal service not initialized'), 'verifyKeyServers');
-      return false;
-    }
-
     setLoading(true);
     clearError();
 
     try {
-      return await sealService.verifyKeyServers(serverIds);
+      await waitForInitialization();
+      return await sealService!.verifyKeyServers(serverIds);
     } catch (error) {
       handleError(error, 'verifyKeyServers');
       return false;
     } finally {
       setLoading(false);
     }
-  }, [sealService, handleError, clearError]);
+  }, [waitForInitialization, sealService, handleError, clearError]);
 
   const fetchKeys = useCallback(async (ids: string[], txBytes: Uint8Array, sessionKey: SealSessionKey, threshold?: number): Promise<Map<string, string> | null> => {
-    if (!sealService) {
-      handleError(new Error('Seal service not initialized'), 'fetchKeys');
-      return null;
-    }
-
     setLoading(true);
     clearError();
 
     try {
-      return await sealService.fetchKeys(ids, txBytes, sessionKey, threshold);
+      await waitForInitialization();
+      return await sealService!.fetchKeys(ids, txBytes, sessionKey, threshold);
     } catch (error) {
       handleError(error, 'fetchKeys');
       return null;
     } finally {
       setLoading(false);
     }
-  }, [sealService, handleError, clearError]);
+  }, [waitForInitialization, sealService, handleError, clearError]);
 
   const getDerivedKeys = useCallback(async (id: string, txBytes: Uint8Array, sessionKey: SealSessionKey, threshold?: number): Promise<Map<string, unknown> | null> => {
-    if (!sealService) {
-      handleError(new Error('Seal service not initialized'), 'getDerivedKeys');
-      return null;
-    }
-
     setLoading(true);
     clearError();
 
     try {
-      return await sealService.getDerivedKeys(id, txBytes, sessionKey, threshold);
+      await waitForInitialization();
+      return await sealService!.getDerivedKeys(id, txBytes, sessionKey, threshold);
     } catch (error) {
       handleError(error, 'getDerivedKeys');
       return null;
     } finally {
       setLoading(false);
     }
-  }, [sealService, handleError, clearError]);
+  }, [waitForInitialization, sealService, handleError, clearError]);
 
   const getPublicKeys = useCallback(async (serverObjectIds: string[]): Promise<unknown[] | null> => {
-    if (!sealService) {
-      handleError(new Error('Seal service not initialized'), 'getPublicKeys');
-      return null;
-    }
-
     setLoading(true);
     clearError();
 
     try {
-      return await sealService.getPublicKeys(serverObjectIds);
+      await waitForInitialization();
+      return await sealService!.getPublicKeys(serverObjectIds);
     } catch (error) {
       handleError(error, 'getPublicKeys');
       return null;
     } finally {
       setLoading(false);
     }
-  }, [sealService, handleError, clearError]);
+  }, [waitForInitialization, sealService, handleError, clearError]);
 
   const parseEncryptedObject = useCallback(async (encryptedBytes: Uint8Array): Promise<unknown | null> => {
-    if (!sealService) {
-      handleError(new Error('Seal service not initialized'), 'parseEncryptedObject');
-      return null;
-    }
-
     try {
-      return await sealService.parseEncryptedObject(encryptedBytes);
+      await waitForInitialization();
+      return await sealService!.parseEncryptedObject(encryptedBytes);
     } catch (error) {
       handleError(error, 'parseEncryptedObject');
       return null;
     }
-  }, [sealService, handleError]);
+  }, [waitForInitialization, sealService, handleError]);
 
   const buildSealApproveTransaction = useCallback(async (packageId: string, moduleName: string, functionName: string, id: string, ...args: unknown[]): Promise<Uint8Array | null> => {
-    if (!sealService) {
-      handleError(new Error('Seal service not initialized'), 'buildSealApproveTransaction');
-      return null;
-    }
-
     setLoading(true);
     clearError();
 
     try {
-      return await sealService.buildSealApproveTransaction(packageId, moduleName, functionName, id, ...args);
+      await waitForInitialization();
+      return await sealService!.buildSealApproveTransaction(packageId, moduleName, functionName, id, ...args);
     } catch (error) {
       handleError(error, 'buildSealApproveTransaction');
       return null;
     } finally {
       setLoading(false);
     }
-  }, [sealService, handleError, clearError]);
+  }, [waitForInitialization, sealService, handleError, clearError]);
 
   // Move contract methods (will throw errors as expected)
   const createAllowlist = useCallback(async (members: string[]): Promise<string | null> => {
-    if (!sealService) {
-      handleError(new Error('Seal service not initialized'), 'createAllowlist');
-      return null;
-    }
-
     try {
-      return await sealService.createAllowlist(members);
+      await waitForInitialization();
+      return await sealService!.createAllowlist(members);
     } catch (error) {
       handleError(error, 'createAllowlist');
       return null;
     }
-  }, [sealService, handleError]);
+  }, [waitForInitialization, sealService, handleError]);
 
   const addToAllowlist = useCallback(async (allowlistId: string, member: string): Promise<boolean> => {
-    if (!sealService) {
-      handleError(new Error('Seal service not initialized'), 'addToAllowlist');
-      return false;
-    }
-
     try {
-      await sealService.addToAllowlist(allowlistId, member);
+      await waitForInitialization();
+      await sealService!.addToAllowlist(allowlistId, member);
       return true;
     } catch (error) {
       handleError(error, 'addToAllowlist');
       return false;
     }
-  }, [sealService, handleError]);
+  }, [waitForInitialization, sealService, handleError]);
 
   const removeFromAllowlist = useCallback(async (allowlistId: string, member: string): Promise<boolean> => {
-    if (!sealService) {
-      handleError(new Error('Seal service not initialized'), 'removeFromAllowlist');
-      return false;
-    }
-
     try {
-      await sealService.removeFromAllowlist(allowlistId, member);
+      await waitForInitialization();
+      await sealService!.removeFromAllowlist(allowlistId, member);
       return true;
     } catch (error) {
       handleError(error, 'removeFromAllowlist');
       return false;
     }
-  }, [sealService, handleError]);
+  }, [waitForInitialization, sealService, handleError]);
 
   const checkAllowlistMembership = useCallback(async (allowlistId: string, member: string): Promise<boolean> => {
-    if (!sealService) {
-      handleError(new Error('Seal service not initialized'), 'checkAllowlistMembership');
-      return false;
-    }
-
     try {
-      return await sealService.checkAllowlistMembership(allowlistId, member);
+      await waitForInitialization();
+      return await sealService!.checkAllowlistMembership(allowlistId, member);
     } catch (error) {
       handleError(error, 'checkAllowlistMembership');
       return false;
     }
-  }, [sealService, handleError]);
+  }, [waitForInitialization, sealService, handleError]);
 
   // Helper function to create default encryption policy
   const createPolicy = useCallback((
     type: 'allowlist' | 'subscription' | 'timelock' | 'voting' | 'private',
     config?: unknown
   ): SealEncryptionPolicy => {
+    // Generate a random 32-byte hex string for the policy ID (without 0x prefix)
+    const randomBytes = new Uint8Array(32);
+    crypto.getRandomValues(randomBytes);
+    const hexId = Array.from(randomBytes)
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+    
     return {
       threshold: state.network.sealConfig.defaultThreshold,
       packageId: state.network.sealConfig.packageId,
-      id: `policy_${Date.now()}_${type}`,
+      id: hexId,
       keyServers: state.network.sealConfig.keyServers,
       policyType: type,
       policyConfig: config
@@ -341,6 +339,7 @@ export function useSeal() {
     policies: state.seal.policies,
     loading,
     error,
+    isInitialized,
     encrypt,
     decrypt,
     createSessionKey,
