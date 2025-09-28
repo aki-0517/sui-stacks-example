@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useSignPersonalMessage } from '@mysten/dapp-kit';
 import { SealService } from '../services/seal';
 import { useAppContext } from '../context/AppContext';
 import type {
@@ -9,6 +10,7 @@ import type {
 
 export function useSeal() {
   const { state, dispatch } = useAppContext();
+  const { mutate: signPersonalMessage } = useSignPersonalMessage();
   const [sealService, setSealService] = useState<SealService | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +40,34 @@ export function useSeal() {
         const client = new SuiClient({ url: networkUrl });
         
         console.log('Creating SealService instance...');
-        const service = new SealService(state.network.sealConfig, client);
+        
+        // Create a signing function wrapper that returns Promise
+        const walletSigningFunction = (message: string | Uint8Array): Promise<{ signature: string; bytes: string }> => {
+          return new Promise((resolve, reject) => {
+            signPersonalMessage(
+              { message: typeof message === 'string' ? new TextEncoder().encode(message) : message },
+              {
+                onSuccess: (result) => {
+                  console.log('Wallet signature successful:', {
+                    hasSignature: !!result.signature,
+                    hasBytes: !!result.bytes,
+                    signatureLength: result.signature?.length
+                  });
+                  resolve({
+                    signature: result.signature,
+                    bytes: result.bytes
+                  });
+                },
+                onError: (error) => {
+                  console.error('Wallet signature failed:', error);
+                  reject(error);
+                }
+              }
+            );
+          });
+        };
+        
+        const service = new SealService(state.network.sealConfig, client, walletSigningFunction);
         
         // Create the initialization promise and store it
         const initPromise = service.initializeSealClient().then(() => {

@@ -13,10 +13,12 @@ export class SealService implements SealClient {
   private config: SealConfig;
   private sealClient: any; // SealClient from @mysten/seal
   private suiClient: any; // SuiClient from @mysten/sui
+  private signPersonalMessage?: (message: string | Uint8Array) => Promise<{ signature: string; bytes: string }>;
 
-  constructor(config: SealConfig, suiClient?: any) {
+  constructor(config: SealConfig, suiClient?: any, signPersonalMessage?: (message: string | Uint8Array) => Promise<{ signature: string; bytes: string }>) {
     this.config = config;
     this.suiClient = suiClient;
+    this.signPersonalMessage = signPersonalMessage;
     // Don't initialize immediately - wait for explicit initialization
   }
 
@@ -97,7 +99,20 @@ export class SealService implements SealClient {
     await this.ensureInitialized();
     
     try {
-      console.log('Starting encryption process...');
+      console.log('=== SEAL ENCRYPTION DEBUG START ===');
+      console.log('Starting encryption process...', {
+        inputDataLength: data.length,
+        inputDataType: typeof data,
+        inputDataConstructor: data?.constructor?.name,
+        inputDataPreview: Array.from(data.slice(0, 20)).map(b => b.toString(16).padStart(2, '0')).join(' '),
+        policyInfo: {
+          id: policy.id,
+          packageId: policy.packageId,
+          threshold: policy.threshold,
+          policyType: policy.policyType,
+          keyServersCount: policy.keyServers?.length
+        }
+      });
       
       // Validate inputs with detailed logging
       if (!policy.packageId || typeof policy.packageId !== 'string') {
@@ -118,12 +133,23 @@ export class SealService implements SealClient {
       // For policy ID: Seal SDK expects it WITHOUT 0x prefix for scalar operations
       const normalizedId = policy.id.startsWith('0x') ? policy.id.slice(2) : policy.id;
 
-      console.log('Encrypting with validated inputs:', {
-        packageId: normalizedPackageId,
-        id: normalizedId, // This should NOT have 0x prefix
+      console.log('Encryption parameters validated and normalized:', {
+        originalPackageId: policy.packageId,
+        normalizedPackageId: normalizedPackageId,
+        originalId: policy.id,
+        normalizedId: normalizedId, // This should NOT have 0x prefix
         threshold: policy.threshold,
         dataLength: data.length,
         policyType: policy.policyType || 'unknown'
+      });
+      
+      console.log('Calling Seal SDK encrypt with parameters:', {
+        threshold: policy.threshold,
+        packageId: normalizedPackageId,
+        id: normalizedId,
+        dataLength: data.length,
+        sealClientExists: !!this.sealClient,
+        sealClientType: typeof this.sealClient
       });
       
       // Call Seal SDK encrypt - packageId keeps 0x, but id should NOT have 0x
@@ -134,14 +160,30 @@ export class SealService implements SealClient {
         data
       });
 
-      console.log('Encryption completed successfully, creating session key...');
+      console.log('Encryption SDK call completed, analyzing result:', {
+        resultExists: !!encryptionResult,
+        resultType: typeof encryptionResult,
+        resultKeys: Object.keys(encryptionResult || {}),
+        encryptedObjectExists: !!encryptionResult?.encryptedObject,
+        encryptedObjectType: typeof encryptionResult?.encryptedObject,
+        encryptedObjectLength: encryptionResult?.encryptedObject?.length,
+        encryptedObjectConstructor: encryptionResult?.encryptedObject?.constructor?.name,
+        encryptedObjectPreview: encryptionResult?.encryptedObject 
+          ? Array.from(encryptionResult.encryptedObject.slice(0, 20)).map((b: any) => b.toString(16).padStart(2, '0')).join(' ')
+          : 'N/A',
+        keyExists: !!encryptionResult?.key,
+        keyType: typeof encryptionResult?.key,
+        keyValue: encryptionResult?.key?.toString?.()
+      });
+
+      console.log('Creating session key for encryption result...');
       
       // Create session key for this encryption
       const sessionKey = await this.createSessionKeyInternal(normalizedPackageId, 10); // 10 minutes TTL
       
-      console.log('Session key created, returning encryption result');
+      console.log('Session key created, building final result...');
 
-      return {
+      const result = {
         encryptedData: new Uint8Array(encryptionResult.encryptedObject),
         sessionKey,
         id: policy.id, // Return original ID format
@@ -149,19 +191,48 @@ export class SealService implements SealClient {
         threshold: policy.threshold,
         backupKey: encryptionResult.key?.toString() // Symmetric key for disaster recovery
       };
+
+      console.log('Encryption result built:', {
+        encryptedDataLength: result.encryptedData.length,
+        encryptedDataType: typeof result.encryptedData,
+        encryptedDataConstructor: result.encryptedData?.constructor?.name,
+        encryptedDataPreview: Array.from(result.encryptedData.slice(0, 20)).map(b => b.toString(16).padStart(2, '0')).join(' '),
+        sessionKeyId: result.sessionKey.id,
+        sessionKeyExists: !!result.sessionKey.key,
+        id: result.id,
+        packageId: result.packageId,
+        threshold: result.threshold,
+        hasBackupKey: !!result.backupKey,
+        backupKeyLength: result.backupKey?.length
+      });
+      
+      console.log('=== SEAL ENCRYPTION DEBUG END ===');
+
+      return result;
     } catch (error) {
+      console.log('=== SEAL ENCRYPTION ERROR DEBUG ===');
       console.error('Seal encryption error details:', {
         error: error,
         errorMessage: error instanceof Error ? error.message : 'Unknown error',
         errorStack: error instanceof Error ? error.stack : 'No stack trace',
+        errorName: error instanceof Error ? error.name : 'Unknown',
         policyInfo: {
           packageId: policy.packageId,
           id: policy.id,
           threshold: policy.threshold,
           policyType: policy.policyType
         },
-        dataLength: data?.length || 0
+        inputData: {
+          dataLength: data?.length || 0,
+          dataType: typeof data,
+          dataConstructor: data?.constructor?.name
+        },
+        sealClientState: {
+          exists: !!this.sealClient,
+          type: typeof this.sealClient
+        }
       });
+      console.log('=== SEAL ENCRYPTION ERROR DEBUG END ===');
       throw new Error(`Encryption failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -170,19 +241,222 @@ export class SealService implements SealClient {
     await this.ensureInitialized();
     
     try {
+      console.log('=== SEAL DECRYPTION DEBUG START ===');
+      console.log('Starting decryption process...', {
+        encryptedDataLength: encryptedData.length,
+        encryptedDataPreview: Array.from(encryptedData.slice(0, 20)).map(b => b.toString(16).padStart(2, '0')).join(' '),
+        sessionKeyId: sessionKey.id,
+        sessionKeyActive: sessionKey.isActive,
+        sessionKeyAddress: sessionKey.address,
+        sessionKeyPackageId: sessionKey.packageId,
+        hasTxBytes: !!txBytes,
+        txBytesLength: txBytes?.length,
+        txBytesPreview: txBytes ? Array.from(txBytes.slice(0, 20)).map(b => b.toString(16).padStart(2, '0')).join(' ') : 'N/A'
+      });
+
       if (!txBytes) {
         throw new Error('Transaction bytes required for decryption - must call seal_approve function');
       }
 
-      const decryptedData = await this.sealClient.decrypt({
-        data: encryptedData,
-        sessionKey: sessionKey.key,
-        txBytes
+      // Validate session key has required properties
+      if (!sessionKey.key) {
+        throw new Error('Session key object is missing key property');
+      }
+
+      console.log('Session key object validation:', {
+        hasKey: !!sessionKey.key,
+        keyType: typeof sessionKey.key,
+        keyConstructor: sessionKey.key?.constructor?.name,
+        availableMethods: Object.getOwnPropertyNames(Object.getPrototypeOf(sessionKey.key || {})).filter(name => typeof sessionKey.key[name] === 'function')
       });
+
+      // Check if session key has a signature set - with detailed logging
+      try {
+        console.log('Checking session key signature capabilities...');
+        
+        // Try to get the personal message to check if signature functionality is available
+        const personalMessage = sessionKey.key.getPersonalMessage();
+        console.log('Personal message retrieved:', {
+          hasPersonalMessage: !!personalMessage,
+          messageType: typeof personalMessage,
+          messageLength: personalMessage?.length || 0,
+          messagePreview: typeof personalMessage === 'string' 
+            ? personalMessage.slice(0, 50) + '...'
+            : personalMessage instanceof Uint8Array 
+              ? Array.from(personalMessage.slice(0, 20)).map(b => b.toString(16).padStart(2, '0')).join(' ')
+              : 'Unknown type',
+          hasSetSignatureMethod: typeof sessionKey.key.setPersonalMessageSignature === 'function'
+        });
+        
+        // Check if session key needs a signature and use wallet to sign
+        if (!this.signPersonalMessage) {
+          console.warn('No wallet signing function available - session key may not work for decryption');
+        } else {
+          try {
+            console.log('Requesting wallet signature for session key during decryption...');
+            
+            // Request signature from wallet
+            const signResult = await this.signPersonalMessage(personalMessage);
+            
+            console.log('Wallet signature received for decryption:', {
+              hasSignature: !!signResult.signature,
+              signatureLength: signResult.signature?.length
+            });
+            
+            // Clean up signature format - remove 0x prefix if present
+            let cleanSignature = signResult.signature;
+            if (cleanSignature.startsWith('0x')) {
+              cleanSignature = cleanSignature.slice(2);
+            }
+            
+            console.log('Setting wallet signature on session key for decryption');
+            sessionKey.key.setPersonalMessageSignature(cleanSignature);
+            console.log('Wallet signature set successfully for decryption');
+            
+          } catch (setSignatureError) {
+            console.error('Failed to set signature during decryption - detailed error:', {
+              error: setSignatureError,
+              errorMessage: setSignatureError instanceof Error ? setSignatureError.message : 'Unknown error',
+              errorStack: setSignatureError instanceof Error ? setSignatureError.stack : 'No stack trace',
+              errorName: setSignatureError instanceof Error ? setSignatureError.name : 'Unknown'
+            });
+            // Don't throw here - let's continue and see if the existing signature works
+            console.warn('Continuing with existing session key signature...');
+          }
+        }
+      } catch (signatureCheckError) {
+        console.error('Session key signature check failed - detailed error:', {
+          error: signatureCheckError,
+          errorMessage: signatureCheckError instanceof Error ? signatureCheckError.message : 'Unknown error',
+          errorStack: signatureCheckError instanceof Error ? signatureCheckError.stack : 'No stack trace',
+          errorName: signatureCheckError instanceof Error ? signatureCheckError.name : 'Unknown'
+        });
+        // Don't throw here, continue with decryption attempt
+        console.warn('Continuing decryption attempt without signature validation...');
+      }
+
+      // Final validation before calling Seal SDK
+      console.log('Pre-decryption validation:', {
+        sealClientExists: !!this.sealClient,
+        sealClientType: typeof this.sealClient,
+        encryptedDataValid: encryptedData instanceof Uint8Array && encryptedData.length > 0,
+        sessionKeyValid: !!sessionKey.key,
+        txBytesValid: txBytes instanceof Uint8Array && txBytes.length > 0
+      });
+
+      console.log('Calling Seal SDK decrypt with parameters:', {
+        dataLength: encryptedData.length,
+        sessionKeyId: sessionKey.id,
+        txBytesLength: txBytes.length
+      });
+
+      // Add detailed pre-SDK call validation
+      console.log('Pre-SDK decrypt call - detailed data analysis:', {
+        encryptedData: {
+          length: encryptedData.length,
+          type: typeof encryptedData,
+          constructor: encryptedData?.constructor?.name,
+          isUint8Array: encryptedData instanceof Uint8Array,
+          buffer: encryptedData?.buffer?.byteLength,
+          byteOffset: encryptedData?.byteOffset,
+          preview: Array.from(encryptedData.slice(0, 32)).map(b => b.toString(16).padStart(2, '0')).join(' ')
+        },
+        sessionKey: {
+          exists: !!sessionKey.key,
+          type: typeof sessionKey.key,
+          constructor: sessionKey.key?.constructor?.name,
+          hasGetPersonalMessage: typeof sessionKey.key?.getPersonalMessage === 'function',
+          hasSetSignature: typeof sessionKey.key?.setPersonalMessageSignature === 'function'
+        },
+        txBytes: {
+          length: txBytes.length,
+          type: typeof txBytes,
+          constructor: txBytes?.constructor?.name,
+          isUint8Array: txBytes instanceof Uint8Array,
+          buffer: txBytes?.buffer?.byteLength,
+          byteOffset: txBytes?.byteOffset,
+          preview: Array.from(txBytes.slice(0, 32)).map(b => b.toString(16).padStart(2, '0')).join(' ')
+        }
+      });
+
+      console.log('About to call sealClient.decrypt...');
+      
+      let decryptedData;
+      try {
+        decryptedData = await this.sealClient.decrypt({
+          data: encryptedData,
+          sessionKey: sessionKey.key,
+          txBytes
+        });
+        console.log('Seal SDK decrypt call completed successfully');
+      } catch (sdkError) {
+        console.error('=== SEAL SDK DECRYPT CALL FAILED ===');
+        console.error('SDK Error details:', {
+          error: sdkError,
+          errorMessage: sdkError instanceof Error ? sdkError.message : 'Unknown SDK error',
+          errorStack: sdkError instanceof Error ? sdkError.stack : 'No stack trace',
+          errorName: sdkError instanceof Error ? sdkError.name : 'Unknown',
+          errorConstructor: sdkError?.constructor?.name,
+          isRangeError: sdkError instanceof RangeError,
+          isTypeError: sdkError instanceof TypeError,
+          errorProperties: Object.getOwnPropertyNames(sdkError || {})
+        });
+        
+        // Check if this is the "Invalid typed array length: 32" error specifically
+        if (sdkError instanceof RangeError && sdkError.message.includes('Invalid typed array length')) {
+          console.error('FOUND THE TYPED ARRAY LENGTH ERROR!', {
+            fullMessage: sdkError.message,
+            stackTrace: sdkError.stack,
+            possibleCause: 'Data corruption or invalid buffer handling in Seal SDK'
+          });
+        }
+        
+        console.error('=== SEAL SDK DECRYPT CALL FAILED END ===');
+        throw sdkError; // Re-throw the original error
+      }
+
+      console.log('Decryption completed successfully', {
+        decryptedDataLength: decryptedData.length,
+        decryptedDataType: typeof decryptedData,
+        decryptedDataConstructor: decryptedData?.constructor?.name,
+        decryptedDataPreview: decryptedData instanceof Uint8Array 
+          ? Array.from(decryptedData.slice(0, 20)).map(b => b.toString(16).padStart(2, '0')).join(' ')
+          : 'Not Uint8Array'
+      });
+      console.log('=== SEAL DECRYPTION DEBUG END ===');
 
       return decryptedData;
     } catch (error) {
-      console.error('Seal decryption error:', error);
+      console.log('=== SEAL DECRYPTION ERROR DEBUG ===');
+      console.error('Seal decryption error details:', {
+        error: error,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        errorStack: error instanceof Error ? error.stack : 'No stack trace',
+        errorName: error instanceof Error ? error.name : 'Unknown',
+        errorConstructor: error?.constructor?.name,
+        sessionKeyInfo: {
+          id: sessionKey.id,
+          isActive: sessionKey.isActive,
+          hasKey: !!sessionKey.key,
+          address: sessionKey.address,
+          packageId: sessionKey.packageId,
+          ttl: sessionKey.ttl,
+          createdAt: sessionKey.createdAt,
+          expiresAt: sessionKey.expiresAt
+        },
+        inputData: {
+          encryptedDataLength: encryptedData.length,
+          encryptedDataConstructor: encryptedData?.constructor?.name,
+          hasTxBytes: !!txBytes,
+          txBytesLength: txBytes?.length,
+          txBytesConstructor: txBytes?.constructor?.name
+        },
+        sealClientState: {
+          exists: !!this.sealClient,
+          type: typeof this.sealClient
+        }
+      });
+      console.log('=== SEAL DECRYPTION ERROR DEBUG END ===');
       throw new Error(`Decryption failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -195,7 +469,15 @@ export class SealService implements SealClient {
     await this.ensureInitialized();
     
     try {
-      console.log('Starting session key creation...');
+      console.log('=== SESSION KEY CREATION DEBUG START ===');
+      console.log('Starting session key creation...', {
+        packageId,
+        ttlMin,
+        userAddress,
+        suiClientExists: !!this.suiClient,
+        sealClientExists: !!this.sealClient
+      });
+      
       const { SessionKey } = await import('@mysten/seal');
 
       // Use provided address or get from current wallet connection
@@ -209,7 +491,8 @@ export class SealService implements SealClient {
         packageId: normalizedPackageId,
         ttlMin,
         suiClientExists: !!this.suiClient,
-        sessionKeyModule: !!SessionKey
+        sessionKeyModule: !!SessionKey,
+        sessionKeyModuleType: typeof SessionKey
       });
 
       const sessionKey = await SessionKey.create({
@@ -219,31 +502,80 @@ export class SealService implements SealClient {
         suiClient: this.suiClient
       });
 
-      console.log('Session key created successfully, preparing for development mode...');
+      console.log('Session key created successfully, analyzing object:', {
+        sessionKeyExists: !!sessionKey,
+        sessionKeyType: typeof sessionKey,
+        sessionKeyConstructor: sessionKey?.constructor?.name,
+        availableMethods: Object.getOwnPropertyNames(Object.getPrototypeOf(sessionKey || {})).filter(name => typeof (sessionKey as any)[name] === 'function'),
+        availableProperties: Object.getOwnPropertyNames(sessionKey || {}).filter(name => typeof (sessionKey as any)[name] !== 'function')
+      });
 
-      // For development, we'll auto-sign the session key
-      // In production, this would require user wallet interaction
+      console.log('Attempting to sign session key with wallet...');
+
+      // Use proper wallet signing for the session key
       try {
-        // Generate a mock signature that matches the expected format
-        // This is a temporary solution for development
+        console.log('Getting personal message from session key...');
         const personalMessage = sessionKey.getPersonalMessage();
-        console.log('Generated personal message for session key signing');
         
-        // Create a placeholder signature that won't trigger validation errors
-        // In a real implementation, this would come from the wallet
-        const mockSignatureBytes = new Uint8Array(64);
-        crypto.getRandomValues(mockSignatureBytes);
-        const mockSignature = Array.from(mockSignatureBytes)
-          .map(b => b.toString(16).padStart(2, '0'))
-          .join('');
+        // Handle both string and Uint8Array cases
+        let messagePreview = 'Unknown message type';
+        if (typeof personalMessage === 'string') {
+          messagePreview = (personalMessage as string).slice(0, 100) + '...';
+        } else if (personalMessage instanceof Uint8Array) {
+          messagePreview = 'Binary message';
+        }
         
-        // For now, skip the signature verification in development
-        console.log('Development mode: Skipping session key signature');
-      } catch (signError) {
-        console.warn('Session key signature skipped in development mode:', {
-          error: signError,
-          errorMessage: signError instanceof Error ? signError.message : 'Unknown signing error'
+        console.log('Personal message analysis:', {
+          messageExists: !!personalMessage,
+          messageType: typeof personalMessage,
+          messageLength: personalMessage?.length || 0,
+          messageConstructor: personalMessage?.constructor?.name,
+          messagePreview
         });
+
+        if (!this.signPersonalMessage) {
+          throw new Error('Wallet signing function not available - please ensure wallet is connected');
+        }
+        
+        console.log('Requesting wallet signature for session key...');
+        
+        // Request signature from wallet
+        const signResult = await this.signPersonalMessage(personalMessage);
+        
+        console.log('Wallet signature received:', {
+          hasSignature: !!signResult.signature,
+          signatureLength: signResult.signature?.length,
+          signaturePreview: signResult.signature?.slice(0, 40) + '...',
+          hasBytes: !!signResult.bytes,
+          bytesLength: signResult.bytes?.length
+        });
+        
+        // Clean up signature format - remove 0x prefix if present
+        let cleanSignature = signResult.signature;
+        if (cleanSignature.startsWith('0x')) {
+          cleanSignature = cleanSignature.slice(2);
+        }
+        
+        console.log('Setting wallet signature on session key:', {
+          originalSignature: signResult.signature.slice(0, 40) + '...',
+          cleanSignature: cleanSignature.slice(0, 40) + '...',
+          cleanSignatureLength: cleanSignature.length
+        });
+        
+        sessionKey.setPersonalMessageSignature(cleanSignature);
+        console.log('Wallet signature set successfully on session key');
+        
+      } catch (signError) {
+        console.error('Session key wallet signing failed - detailed error:', {
+          error: signError,
+          errorMessage: signError instanceof Error ? signError.message : 'Unknown signing error',
+          errorStack: signError instanceof Error ? signError.stack : 'No stack trace',
+          errorName: signError instanceof Error ? signError.name : 'Unknown',
+          hasSignFunction: !!this.signPersonalMessage
+        });
+        
+        // If wallet signing fails, throw error - don't continue with invalid signature
+        throw new Error(`Session key signing failed: ${signError instanceof Error ? signError.message : 'Unknown error'}`);
       }
 
       const sessionKeyResult = {
@@ -257,20 +589,26 @@ export class SealService implements SealClient {
         isActive: true // Set to true for development
       };
 
-      console.log('Session key creation completed successfully:', {
+      console.log('Session key creation completed:', {
         id: sessionKeyResult.id,
         packageId: sessionKeyResult.packageId,
         address: sessionKeyResult.address,
         ttl: sessionKeyResult.ttl,
-        expiresAt: new Date(sessionKeyResult.expiresAt).toISOString()
+        expiresAt: new Date(sessionKeyResult.expiresAt).toISOString(),
+        hasSetSignatureMethod: typeof sessionKey.setPersonalMessageSignature === 'function',
+        resultObjectKeys: Object.keys(sessionKeyResult),
+        sessionKeyObjectKeys: Object.keys(sessionKey || {})
       });
+      console.log('=== SESSION KEY CREATION DEBUG END ===');
 
       return sessionKeyResult;
     } catch (error) {
+      console.log('=== SESSION KEY CREATION ERROR DEBUG ===');
       console.error('Seal session key creation error - detailed info:', {
         error: error,
         errorMessage: error instanceof Error ? error.message : 'Unknown error',
         errorStack: error instanceof Error ? error.stack : 'No stack trace',
+        errorName: error instanceof Error ? error.name : 'Unknown',
         inputParams: {
           packageId,
           normalizedPackageId: packageId.startsWith('0x') ? packageId : `0x${packageId}`,
@@ -283,20 +621,53 @@ export class SealService implements SealClient {
           suiClientExists: !!this.suiClient
         }
       });
+      console.log('=== SESSION KEY CREATION ERROR DEBUG END ===');
       throw new Error(`Session key creation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
   async signSessionKey(sessionKey: SealSessionKey, signature: string): Promise<void> {
     try {
+      console.log('Signing session key...', {
+        sessionKeyId: sessionKey.id,
+        signatureLength: signature.length,
+        hasSessionKeyObject: !!sessionKey.key
+      });
+
       if (!sessionKey.key || typeof sessionKey.key.setPersonalMessageSignature !== 'function') {
-        throw new Error('Invalid session key object');
+        throw new Error('Invalid session key object - missing setPersonalMessageSignature method');
       }
 
-      sessionKey.key.setPersonalMessageSignature(signature);
+      // Ensure signature is in proper hex format (128 characters for 64 bytes)
+      let normalizedSignature = signature;
+      if (signature.startsWith('0x')) {
+        normalizedSignature = signature.slice(2);
+      }
+      
+      if (normalizedSignature.length !== 128) {
+        console.warn('Signature length is not 128 characters, padding or truncating...', {
+          originalLength: normalizedSignature.length,
+          signature: normalizedSignature.slice(0, 32) + '...'
+        });
+        
+        // Pad with zeros or truncate to 128 characters
+        normalizedSignature = normalizedSignature.padEnd(128, '0').slice(0, 128);
+      }
+
+      sessionKey.key.setPersonalMessageSignature(normalizedSignature);
       sessionKey.isActive = true;
+      
+      console.log('Session key signed successfully');
     } catch (error) {
-      console.error('Session key signing error:', error);
+      console.error('Session key signing error:', {
+        error: error,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        sessionKeyInfo: {
+          id: sessionKey.id,
+          hasKey: !!sessionKey.key,
+          isActive: sessionKey.isActive
+        }
+      });
       throw new Error(`Session key signing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
