@@ -7,7 +7,8 @@ export const NETWORK_CONFIG = {
     walrus: {
       aggregator: 'https://aggregator.walrus-testnet.walrus.space',
       publisher: 'https://publisher.walrus-testnet.walrus.space',
-      packageId: '0x618c6d4e8e5c08c2885e17c00b0983b0dc2c3b57a2a7a28b86cbb6b5f6b9f0f1'
+      packageId: '0x618c6d4e8e5c08c2885e17c00b0983b0dc2c3b57a2a7a28b86cbb6b5f6b9f0f1',
+      walrusPackageId: '0x618c6d4e8e5c08c2885e17c00b0983b0dc2c3b57a2a7a28b86cbb6b5f6b9f0f1'
     },
     seal: {
       keyServers: [
@@ -42,7 +43,8 @@ export const NETWORK_CONFIG = {
     walrus: {
       aggregator: 'https://aggregator.walrus.space',
       publisher: 'https://publisher.walrus.space',
-      packageId: '0x618c6d4e8e5c08c2885e17c00b0983b0dc2c3b57a2a7a28b86cbb6b5f6b9f0f1'
+      packageId: '0x618c6d4e8e5c08c2885e17c00b0983b0dc2c3b57a2a7a28b86cbb6b5f6b9f0f1',
+      walrusPackageId: '0x618c6d4e8e5c08c2885e17c00b0983b0dc2c3b57a2a7a28b86cbb6b5f6b9f0f1'
     },
     seal: {
       keyServers: [

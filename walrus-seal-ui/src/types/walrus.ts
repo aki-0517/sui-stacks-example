@@ -89,8 +89,16 @@ export interface WalrusConfig {
   aggregator: string;
   publisher: string;
   packageId: string;
+  walrusPackageId: string;
   timeout?: number;
   retries?: number;
+}
+
+export interface AvailabilityCertificate {
+  blobId: string;
+  epochNumber: number;
+  nodes: string[];
+  signatures: string[];
 }
 
 export interface WalrusError {

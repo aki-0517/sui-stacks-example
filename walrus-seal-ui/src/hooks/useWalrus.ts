@@ -10,16 +10,106 @@ import type {
   WalrusQuiltResult
 } from '../types/walrus';
 
+import { useSuiClient } from '@mysten/dapp-kit';
+import { useSignAndExecuteTransaction } from '@mysten/dapp-kit';
+import { Transaction } from '@mysten/sui/transactions';
+
+import { useCurrentAccount } from '@mysten/dapp-kit';
+
 export function useWalrus() {
   const { state, dispatch } = useAppContext();
+  const suiClientResult = useSuiClient();
+  const { suiClient } = suiClientResult;
+  const currentAccount = useCurrentAccount();
+  const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
+  
+  // デバッグ情報を追加
+  console.log('useWalrus hook - SuiClient state:', {
+    suiClientResult,
+    hasSuiClient: !!suiClient,
+    suiClientType: typeof suiClient,
+    currentAccount: currentAccount?.address,
+    signAndExecute: !!signAndExecute
+  });
   const [walrusService, setWalrusService] = useState<WalrusService | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const service = new WalrusService(state.network.walrusConfig);
-    setWalrusService(service);
-  }, [state.network.walrusConfig]);
+    const initializeWalrusService = async () => {
+      console.log('useWalrus initialization check:', {
+        hasCurrentAccount: !!currentAccount,
+        hasAddress: !!currentAccount?.address,
+        address: currentAccount?.address,
+        hasSuiClient: !!suiClient,
+        hasWalrusConfig: !!state.network.walrusConfig,
+        walrusConfig: state.network.walrusConfig
+      });
+
+      if (!currentAccount?.address) {
+        console.log('useWalrus: Missing current account, setting service to null');
+        setWalrusService(null);
+        return;
+      }
+
+      if (!state.network.walrusConfig) {
+        console.log('useWalrus: Missing walrus config, setting service to null');
+        setWalrusService(null);
+        return;
+      }
+
+      // SuiClientが利用できない場合は手動で作成
+      let clientToUse = suiClient;
+      if (!clientToUse) {
+        console.log('useWalrus: SuiClient not available from hook, creating manually');
+        try {
+          // 動的インポートを使用してブラウザ環境で動作するようにする
+          const { SuiClient, getFullnodeUrl } = await import('@mysten/sui/client');
+          const network = state.network.current;
+          const rpcUrl = getFullnodeUrl(network);
+          console.log(`useWalrus: Creating SuiClient for ${network} with URL: ${rpcUrl}`);
+          clientToUse = new SuiClient({ url: rpcUrl });
+          console.log('useWalrus: Manual SuiClient created successfully');
+        } catch (error) {
+          console.error('useWalrus: Failed to create manual SuiClient:', error);
+          setWalrusService(null);
+          return;
+        }
+      }
+
+      const signTransaction = async (tx: Transaction): Promise<any> => {
+        const result = await signAndExecute({
+          transaction: tx,
+          options: {
+            showEffects: true,
+            showEvents: true
+          }
+        });
+        
+        // Return the actual transaction result for executeTransactionBlock
+        return result as any;
+      };
+
+      console.log('useWalrus: Creating WalrusService with:', {
+        config: state.network.walrusConfig,
+        hasSuiClient: !!clientToUse,
+        hasSignTransaction: !!signTransaction,
+        address: currentAccount.address
+      });
+
+      const service = new WalrusService(
+        state.network.walrusConfig,
+        clientToUse,
+        signTransaction,
+        currentAccount.address
+      );
+      
+      console.log('useWalrus: WalrusService created successfully:', !!service);
+      setWalrusService(service);
+    };
+
+    initializeWalrusService();
+  }, [state.network.walrusConfig, state.network.current, suiClient, signAndExecute, currentAccount]);
 
   const handleError = useCallback((error: any, operation: string) => {
     const message = error instanceof Error ? error.message : `${operation} failed`;
@@ -34,8 +124,23 @@ export function useWalrus() {
   }, [dispatch]);
 
   const store = useCallback(async (files: File[], options: WalrusStoreOptions): Promise<WalrusStoreResult | null> => {
+    console.log('useWalrus store function called:', {
+      hasWalrusService: !!walrusService,
+      hasCurrentAccount: !!currentAccount,
+      hasAddress: !!currentAccount?.address,
+      address: currentAccount?.address,
+      filesCount: files.length
+    });
+
     if (!walrusService) {
-      handleError(new Error('Walrus service not initialized'), 'store');
+      const errorMsg = `Walrus service not initialized. Current state: wallet=${!!currentAccount?.address}, suiClient=${!!suiClientResult.suiClient}, config=${!!state.network.walrusConfig}`;
+      console.error('useWalrus store error:', errorMsg);
+      handleError(new Error(errorMsg), 'store');
+      return null;
+    }
+
+    if (!currentAccount?.address) {
+      handleError(new Error('Wallet not connected'), 'store');
       return null;
     }
 
@@ -66,7 +171,7 @@ export function useWalrus() {
     } finally {
       setLoading(false);
     }
-  }, [walrusService, handleError, clearError, dispatch]);
+  }, [walrusService, currentAccount, handleError, clearError, dispatch]);
 
   const read = useCallback(async (blobId: string): Promise<Blob | null> => {
     if (!walrusService) {
