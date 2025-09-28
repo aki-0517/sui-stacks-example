@@ -115,22 +115,22 @@ export class SealService implements SealClient {
 
       // Ensure proper hex format for packageId (keep as string for Seal SDK)
       const normalizedPackageId = policy.packageId.startsWith('0x') ? policy.packageId : `0x${policy.packageId}`;
-      // Ensure hex format for policy ID (keep as string for Seal SDK)
-      const normalizedId = policy.id.startsWith('0x') ? policy.id : `0x${policy.id}`;
+      // For policy ID: Seal SDK expects it WITHOUT 0x prefix for scalar operations
+      const normalizedId = policy.id.startsWith('0x') ? policy.id.slice(2) : policy.id;
 
       console.log('Encrypting with validated inputs:', {
         packageId: normalizedPackageId,
-        id: normalizedId,
+        id: normalizedId, // This should NOT have 0x prefix
         threshold: policy.threshold,
         dataLength: data.length,
         policyType: policy.policyType || 'unknown'
       });
       
-      // Call Seal SDK encrypt with string values (not converted to bytes)
+      // Call Seal SDK encrypt - packageId keeps 0x, but id should NOT have 0x
       const encryptionResult = await this.sealClient.encrypt({
         threshold: policy.threshold,
-        packageId: normalizedPackageId, // Keep as string - Seal SDK will handle conversion internally
-        id: normalizedId, // Keep as string - Seal SDK will handle conversion internally
+        packageId: normalizedPackageId, // Keep 0x prefix for package ID
+        id: normalizedId, // NO 0x prefix for policy ID - this is what was causing "Scalar out of range"
         data
       });
 
@@ -144,7 +144,7 @@ export class SealService implements SealClient {
       return {
         encryptedData: new Uint8Array(encryptionResult.encryptedObject),
         sessionKey,
-        id: normalizedId,
+        id: policy.id, // Return original ID format
         packageId: normalizedPackageId,
         threshold: policy.threshold,
         backupKey: encryptionResult.key?.toString() // Symmetric key for disaster recovery
@@ -426,15 +426,24 @@ export class SealService implements SealClient {
       const { Transaction } = await import('@mysten/sui/transactions');
       const { fromHEX } = await import('@mysten/sui/utils');
 
-      // Ensure proper hex format
+      // Ensure proper hex format for packageId (needs 0x prefix)
       const normalizedPackageId = packageId.startsWith('0x') ? packageId : `0x${packageId}`;
+      // For policy ID: remove 0x prefix if present, as we need raw hex for fromHEX conversion
       const normalizedId = id.startsWith('0x') ? id.slice(2) : id;
+
+      console.log('Building Seal approve transaction:', {
+        packageId: normalizedPackageId,
+        id: normalizedId,
+        moduleName,
+        functionName,
+        argsLength: args.length
+      });
 
       const tx = new Transaction();
       tx.moveCall({
         target: `${normalizedPackageId}::${moduleName}::${functionName}`,
         arguments: [
-          tx.pure.vector('u8', fromHEX(normalizedId)),
+          tx.pure.vector('u8', fromHEX(normalizedId)), // Convert hex string to bytes
           ...(args as any[])
         ]
       });
