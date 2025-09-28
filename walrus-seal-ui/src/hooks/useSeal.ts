@@ -21,6 +21,11 @@ export function useSeal() {
     
     const initService = async () => {
       try {
+        console.log('Starting Seal service initialization...', {
+          network: state.network.current,
+          sealConfig: state.network.sealConfig
+        });
+        
         setIsInitialized(false);
         setError(null);
         
@@ -28,14 +33,17 @@ export function useSeal() {
         const networkUrl = state.network.current === 'testnet' 
           ? getFullnodeUrl('testnet')
           : getFullnodeUrl('mainnet');
+        
+        console.log(`Creating Sui client for network: ${state.network.current}, URL: ${networkUrl}`);
         const client = new SuiClient({ url: networkUrl });
         
+        console.log('Creating SealService instance...');
         const service = new SealService(state.network.sealConfig, client);
         
         // Create the initialization promise and store it
         const initPromise = service.initializeSealClient().then(() => {
           if (!isCancelled) {
-            console.log('Seal service fully initialized');
+            console.log('Seal service fully initialized successfully');
             setIsInitialized(true);
             setSealService(service);
           }
@@ -50,7 +58,15 @@ export function useSeal() {
         
       } catch (error) {
         if (!isCancelled) {
-          console.error('Failed to initialize Seal service:', error);
+          console.error('Failed to initialize Seal service - detailed error:', {
+            error: error,
+            errorMessage: error instanceof Error ? error.message : 'Unknown error',
+            errorStack: error instanceof Error ? error.stack : 'No stack trace',
+            networkState: {
+              current: state.network.current,
+              sealConfig: state.network.sealConfig
+            }
+          });
           setError(`Failed to initialize Seal service: ${error instanceof Error ? error.message : 'Unknown error'}`);
           setIsInitialized(false);
           setSealService(null);
@@ -66,24 +82,36 @@ export function useSeal() {
   }, [state.network]);
 
   const waitForInitialization = useCallback(async () => {
+    console.log('Waiting for Seal initialization...', { isInitialized, sealServiceExists: !!sealService });
+    
     if (isInitialized && sealService) {
+      console.log('Seal service already initialized');
       return;
     }
     
     if (initializationPromise) {
+      console.log('Waiting for initialization promise to resolve...');
       await initializationPromise;
     }
     
     if (!isInitialized || !sealService) {
+      console.error('Seal service failed to initialize - throwing error');
       throw new Error('Seal service failed to initialize');
     }
+    
+    console.log('Seal service initialization wait completed successfully');
   }, [isInitialized, sealService, initializationPromise]);
 
   const handleError = useCallback((error: unknown, operation: string) => {
     const message = error instanceof Error ? error.message : `${operation} failed`;
+    console.error(`Seal ${operation} error - detailed info:`, {
+      operation,
+      error: error,
+      errorMessage: message,
+      errorStack: error instanceof Error ? error.stack : 'No stack trace'
+    });
     setError(message);
     dispatch({ type: 'SET_ERROR', payload: message });
-    console.error(`Seal ${operation} error:`, error);
   }, [dispatch]);
 
   const clearError = useCallback(() => {
@@ -92,6 +120,14 @@ export function useSeal() {
   }, [dispatch]);
 
   const encrypt = useCallback(async (data: Uint8Array, policy: SealEncryptionPolicy): Promise<SealEncryptionResult | null> => {
+    console.log('Starting encryption with policy:', {
+      policyId: policy.id,
+      packageId: policy.packageId,
+      threshold: policy.threshold,
+      policyType: policy.policyType,
+      dataLength: data.length
+    });
+    
     setLoading(true);
     clearError();
 
@@ -100,12 +136,15 @@ export function useSeal() {
       
       const result = await sealService!.encrypt(data, policy);
       
+      console.log('Encryption completed successfully, storing session key...');
+      
       // Store session key in global state
       dispatch({
         type: 'ADD_SESSION_KEY',
         payload: result.sessionKey
       });
       
+      console.log('Session key stored in global state');
       return result;
     } catch (error) {
       handleError(error, 'encrypt');
@@ -117,16 +156,25 @@ export function useSeal() {
 
   const decrypt = useCallback(async (encryptedData: Uint8Array, sessionKey: SealSessionKey, txBytes?: Uint8Array): Promise<Uint8Array | null> => {
     if (!txBytes) {
+      console.error('Decrypt called without transaction bytes');
       handleError(new Error('Transaction bytes required for decryption'), 'decrypt');
       return null;
     }
+
+    console.log('Starting decryption...', {
+      sessionKeyId: sessionKey.id,
+      encryptedDataLength: encryptedData.length,
+      txBytesLength: txBytes.length
+    });
 
     setLoading(true);
     clearError();
 
     try {
       await waitForInitialization();
-      return await sealService!.decrypt(encryptedData, sessionKey, txBytes);
+      const result = await sealService!.decrypt(encryptedData, sessionKey, txBytes);
+      console.log('Decryption completed successfully');
+      return result;
     } catch (error) {
       handleError(error, 'decrypt');
       return null;
@@ -136,6 +184,12 @@ export function useSeal() {
   }, [waitForInitialization, sealService, handleError, clearError]);
 
   const createSessionKey = useCallback(async (packageId: string, ttl: number, userAddress?: string): Promise<SealSessionKey | null> => {
+    console.log('Creating session key...', {
+      packageId,
+      ttl,
+      userAddress: userAddress || 'using fallback'
+    });
+    
     setLoading(true);
     clearError();
 
@@ -144,12 +198,15 @@ export function useSeal() {
       
       const sessionKey = await sealService!.createSessionKey(packageId, ttl, userAddress);
       
+      console.log('Session key created successfully, storing in global state...');
+      
       // Store session key in global state
       dispatch({
         type: 'ADD_SESSION_KEY',
         payload: sessionKey
       });
       
+      console.log('Session key stored in global state');
       return sessionKey;
     } catch (error) {
       handleError(error, 'createSessionKey');
@@ -322,6 +379,13 @@ export function useSeal() {
     const hexId = Array.from(randomBytes)
       .map(b => b.toString(16).padStart(2, '0'))
       .join('');
+    
+    console.log('Creating encryption policy:', {
+      type,
+      hexId,
+      threshold: state.network.sealConfig.defaultThreshold,
+      packageId: state.network.sealConfig.packageId
+    });
     
     return {
       threshold: state.network.sealConfig.defaultThreshold,

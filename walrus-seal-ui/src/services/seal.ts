@@ -22,24 +22,35 @@ export class SealService implements SealClient {
 
   async initializeSealClient() {
     try {
+      console.log('Starting Seal SDK initialization...');
+      
       // Dynamically import Seal SDK to avoid build issues
       const { SealClient: SealSDK } = await import('@mysten/seal');
       const { SuiClient } = await import('@mysten/sui/client');
       const { getFullnodeUrl } = await import('@mysten/sui/client');
 
+      console.log('Seal SDK modules imported successfully');
+
       // Initialize Sui client if not provided
       if (!this.suiClient) {
         const network = this.config.keyServers[0]?.url.includes('testnet') ? 'testnet' : 'mainnet';
+        console.log(`Initializing Sui client for network: ${network}`);
         this.suiClient = new SuiClient({ url: getFullnodeUrl(network) });
+        console.log(`Sui client initialized with URL: ${getFullnodeUrl(network)}`);
+      } else {
+        console.log('Using provided Sui client');
       }
 
-      // Use the exact server object IDs from Seal documentation
+      // Use the exact server object IDs from Seal documentation (testnet)
       const serverObjectIds = [
         "0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75", 
         "0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8"
       ];
 
+      console.log('Using verified Seal key server object IDs:', serverObjectIds);
+
       // Initialize Seal SDK client with exact format from docs
+      console.log('Creating Seal SDK client...');
       this.sealClient = new SealSDK({
         suiClient: this.suiClient,
         serverConfigs: serverObjectIds.map((id) => ({
@@ -50,8 +61,28 @@ export class SealService implements SealClient {
       });
 
       console.log('Seal SDK client initialized successfully');
+      
+      // Test the connection with a simple operation
+      try {
+        console.log('Testing Seal SDK connection...');
+        const publicKeys = await this.sealClient.getPublicKeys(serverObjectIds);
+        console.log(`Seal SDK connection test successful, retrieved ${publicKeys?.length || 0} public keys`);
+      } catch (testError) {
+        console.warn('Seal SDK connection test failed, but client may still work:', testError);
+      }
+      
     } catch (error) {
-      console.error('Failed to initialize Seal SDK:', error);
+      console.error('Failed to initialize Seal SDK - detailed error info:', {
+        error: error,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        errorStack: error instanceof Error ? error.stack : 'No stack trace',
+        configInfo: {
+          keyServersCount: this.config.keyServers?.length || 0,
+          keyServers: this.config.keyServers?.map(ks => ({ id: ks.id, url: ks.url })) || [],
+          defaultThreshold: this.config.defaultThreshold
+        },
+        suiClientExists: !!this.suiClient
+      });
       throw new Error(`Seal SDK initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -66,51 +97,71 @@ export class SealService implements SealClient {
     await this.ensureInitialized();
     
     try {
-      const { fromHEX } = await import('@mysten/sui/utils');
+      console.log('Starting encryption process...');
       
-      // Validate inputs
+      // Validate inputs with detailed logging
       if (!policy.packageId || typeof policy.packageId !== 'string') {
+        console.error('Invalid packageId provided:', { packageId: policy.packageId, type: typeof policy.packageId });
         throw new Error(`Invalid packageId: ${policy.packageId}`);
       }
       if (!policy.id || typeof policy.id !== 'string') {
+        console.error('Invalid policy id provided:', { id: policy.id, type: typeof policy.id });
         throw new Error(`Invalid policy id: ${policy.id}`);
       }
       if (!data || data.length === 0) {
+        console.error('Invalid data provided:', { dataExists: !!data, dataLength: data?.length });
         throw new Error('Data to encrypt cannot be empty');
       }
 
-      // Ensure proper hex format for packageId
+      // Ensure proper hex format for packageId (keep as string for Seal SDK)
       const normalizedPackageId = policy.packageId.startsWith('0x') ? policy.packageId : `0x${policy.packageId}`;
-      // Ensure hex format for policy ID (should not have 0x prefix for Seal SDK)
-      const normalizedId = policy.id.startsWith('0x') ? policy.id.slice(2) : policy.id;
+      // Ensure hex format for policy ID (keep as string for Seal SDK)
+      const normalizedId = policy.id.startsWith('0x') ? policy.id : `0x${policy.id}`;
 
       console.log('Encrypting with validated inputs:', {
         packageId: normalizedPackageId,
         id: normalizedId,
         threshold: policy.threshold,
-        dataLength: data.length
+        dataLength: data.length,
+        policyType: policy.policyType || 'unknown'
       });
       
+      // Call Seal SDK encrypt with string values (not converted to bytes)
       const encryptionResult = await this.sealClient.encrypt({
         threshold: policy.threshold,
-        packageId: fromHEX(normalizedPackageId), // Convert to bytes for encryption
-        id: fromHEX(normalizedId), // Convert to bytes for encryption
+        packageId: normalizedPackageId, // Keep as string - Seal SDK will handle conversion internally
+        id: normalizedId, // Keep as string - Seal SDK will handle conversion internally
         data
       });
 
+      console.log('Encryption completed successfully, creating session key...');
+      
       // Create session key for this encryption
-      const sessionKey = await this.createSessionKeyInternal(policy.packageId, 10); // 10 minutes TTL
+      const sessionKey = await this.createSessionKeyInternal(normalizedPackageId, 10); // 10 minutes TTL
+      
+      console.log('Session key created, returning encryption result');
 
       return {
         encryptedData: new Uint8Array(encryptionResult.encryptedObject),
         sessionKey,
-        id: policy.id,
-        packageId: policy.packageId,
+        id: normalizedId,
+        packageId: normalizedPackageId,
         threshold: policy.threshold,
         backupKey: encryptionResult.key?.toString() // Symmetric key for disaster recovery
       };
     } catch (error) {
-      console.error('Seal encryption error:', error);
+      console.error('Seal encryption error details:', {
+        error: error,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        errorStack: error instanceof Error ? error.stack : 'No stack trace',
+        policyInfo: {
+          packageId: policy.packageId,
+          id: policy.id,
+          threshold: policy.threshold,
+          policyType: policy.policyType
+        },
+        dataLength: data?.length || 0
+      });
       throw new Error(`Encryption failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -144,18 +195,21 @@ export class SealService implements SealClient {
     await this.ensureInitialized();
     
     try {
+      console.log('Starting session key creation...');
       const { SessionKey } = await import('@mysten/seal');
 
       // Use provided address or get from current wallet connection
-      const address = userAddress || '0x0'; // Should be provided by wallet context
+      const address = userAddress || '0xbf7d5d6172973a8ad84a8f6f09fbdf6499bdac17ca6a396fd5e62a5b76f4dbcf'; // Fallback address for development
       
       // Ensure proper hex format for packageId (keep as string, don't convert with fromHEX)
       const normalizedPackageId = packageId.startsWith('0x') ? packageId : `0x${packageId}`;
 
-      console.log('Creating session key with:', {
+      console.log('Creating session key with detailed params:', {
         address,
         packageId: normalizedPackageId,
-        ttlMin
+        ttlMin,
+        suiClientExists: !!this.suiClient,
+        sessionKeyModule: !!SessionKey
       });
 
       const sessionKey = await SessionKey.create({
@@ -165,12 +219,15 @@ export class SealService implements SealClient {
         suiClient: this.suiClient
       });
 
+      console.log('Session key created successfully, preparing for development mode...');
+
       // For development, we'll auto-sign the session key
       // In production, this would require user wallet interaction
       try {
         // Generate a mock signature that matches the expected format
         // This is a temporary solution for development
         const personalMessage = sessionKey.getPersonalMessage();
+        console.log('Generated personal message for session key signing');
         
         // Create a placeholder signature that won't trigger validation errors
         // In a real implementation, this would come from the wallet
@@ -183,21 +240,49 @@ export class SealService implements SealClient {
         // For now, skip the signature verification in development
         console.log('Development mode: Skipping session key signature');
       } catch (signError) {
-        console.warn('Session key signature skipped in development mode:', signError);
+        console.warn('Session key signature skipped in development mode:', {
+          error: signError,
+          errorMessage: signError instanceof Error ? signError.message : 'Unknown signing error'
+        });
       }
 
-      return {
+      const sessionKeyResult = {
         id: `session_${Date.now()}`,
         key: sessionKey,
-        packageId,
+        packageId: normalizedPackageId,
         address,
         ttl: ttlMin,
         createdAt: Date.now(),
         expiresAt: Date.now() + (ttlMin * 60 * 1000),
         isActive: true // Set to true for development
       };
+
+      console.log('Session key creation completed successfully:', {
+        id: sessionKeyResult.id,
+        packageId: sessionKeyResult.packageId,
+        address: sessionKeyResult.address,
+        ttl: sessionKeyResult.ttl,
+        expiresAt: new Date(sessionKeyResult.expiresAt).toISOString()
+      });
+
+      return sessionKeyResult;
     } catch (error) {
-      console.error('Seal session key creation error:', error);
+      console.error('Seal session key creation error - detailed info:', {
+        error: error,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        errorStack: error instanceof Error ? error.stack : 'No stack trace',
+        inputParams: {
+          packageId,
+          normalizedPackageId: packageId.startsWith('0x') ? packageId : `0x${packageId}`,
+          ttlMin,
+          userAddress,
+          fallbackAddress: userAddress || '0xbf7d5d6172973a8ad84a8f6f09fbdf6499bdac17ca6a396fd5e62a5b76f4dbcf'
+        },
+        clientState: {
+          sealClientExists: !!this.sealClient,
+          suiClientExists: !!this.suiClient
+        }
+      });
       throw new Error(`Session key creation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
