@@ -1,9 +1,14 @@
 export interface SealClient {
   encrypt(data: Uint8Array, policy: SealEncryptionPolicy): Promise<SealEncryptionResult>;
-  decrypt(encryptedData: Uint8Array, sessionKey: SealSessionKey): Promise<Uint8Array>;
-  createSessionKey(packageId: string, ttl: number): Promise<SealSessionKey>;
+  decrypt(encryptedData: Uint8Array, sessionKey: SealSessionKey, txBytes?: Uint8Array): Promise<Uint8Array>;
+  createSessionKey(packageId: string, ttl: number, userAddress?: string): Promise<SealSessionKey>;
+  signSessionKey(sessionKey: SealSessionKey, signature: string): Promise<void>;
   verifyKeyServers(serverIds: string[]): Promise<boolean>;
-  fetchKeys(ids: string[], txBytes: Uint8Array, sessionKey: SealSessionKey): Promise<Map<string, string>>;
+  fetchKeys(ids: string[], txBytes: Uint8Array, sessionKey: SealSessionKey, threshold?: number): Promise<Map<string, string>>;
+  getDerivedKeys(id: string, txBytes: Uint8Array, sessionKey: SealSessionKey, threshold?: number): Promise<Map<string, any>>;
+  getPublicKeys(serverObjectIds: string[]): Promise<any[]>;
+  parseEncryptedObject(encryptedBytes: Uint8Array): Promise<any>;
+  buildSealApproveTransaction(packageId: string, moduleName: string, functionName: string, id: string, ...args: any[]): Promise<Uint8Array>;
   createAllowlist(members: string[]): Promise<string>;
   addToAllowlist(allowlistId: string, member: string): Promise<void>;
   removeFromAllowlist(allowlistId: string, member: string): Promise<void>;
@@ -20,10 +25,12 @@ export interface SealEncryptionPolicy {
 }
 
 export interface SealEncryptionResult {
-  encryptedObject: Uint8Array;
+  encryptedData: Uint8Array;
   sessionKey: SealSessionKey;
-  policy: SealEncryptionPolicy;
-  metadata: SealEncryptionMetadata;
+  id: string;
+  packageId: string;
+  threshold: number;
+  backupKey?: string; // Symmetric key for disaster recovery
 }
 
 export interface SealEncryptionMetadata {
@@ -36,12 +43,13 @@ export interface SealEncryptionMetadata {
 
 export interface SealSessionKey {
   id: string;
+  key: any; // SessionKey from @mysten/seal SDK
   packageId: string;
+  address: string;
   ttl: number;
-  createdAt: Date;
-  expiresAt: Date;
-  keyData: Uint8Array;
-  verified: boolean;
+  createdAt: number;
+  expiresAt: number;
+  isActive: boolean;
 }
 
 export interface SealKeyServerInfo {
@@ -51,6 +59,8 @@ export interface SealKeyServerInfo {
   threshold: number;
   publicKey: string;
   status: 'online' | 'offline' | 'syncing';
+  apiKeyName?: string;
+  apiKey?: string;
 }
 
 export interface SealPolicyInfo {

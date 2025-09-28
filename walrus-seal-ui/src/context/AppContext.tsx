@@ -18,6 +18,7 @@ type AppAction =
   | { type: 'REMOVE_BLOB'; payload: string }
   | { type: 'SET_SYSTEM_INFO'; payload: any }
   | { type: 'ADD_SESSION_KEY'; payload: any }
+  | { type: 'UPDATE_SESSION_KEY'; payload: any }
   | { type: 'REMOVE_SESSION_KEY'; payload: string };
 
 const initialState: AppState = {
@@ -144,6 +145,17 @@ function appReducer(state: AppState, action: AppAction): AppState {
         seal: {
           ...state.seal,
           sessionKeys: newSessionKeys
+        }
+      };
+    
+    case 'UPDATE_SESSION_KEY':
+      const updateSessionKeys = new Map(state.seal.sessionKeys);
+      updateSessionKeys.set(action.payload.id, action.payload);
+      return {
+        ...state,
+        seal: {
+          ...state.seal,
+          sessionKeys: updateSessionKeys
         }
       };
     

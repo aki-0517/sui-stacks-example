@@ -93,7 +93,7 @@ export class WalrusService implements WalrusClient {
         // Blob exists and is accessible
         return {
           id: blobId,
-          status: 'available',
+          status: 'stored',
           epochs: 0, // Unknown from aggregator
           expiry: undefined,
           size: parseInt(response.headers.get('content-length') || '0'),
