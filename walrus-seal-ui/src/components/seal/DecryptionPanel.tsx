@@ -5,13 +5,14 @@ import { useAppContext } from '../../context/AppContext';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 import { formatBytes } from '../../utils/config';
 import { SealSessionKey } from '../../types/seal';
+import { SessionKeyInfo } from './SessionKeyInfo';
 
 interface DecryptionPanelProps {
   onDecryptionComplete?: (result: Uint8Array) => void;
 }
 
 export function DecryptionPanel({ onDecryptionComplete }: DecryptionPanelProps) {
-  const { state } = useAppContext();
+  const { state, dispatch } = useAppContext();
   const { 
     decrypt, 
     sessionKeys, 
@@ -73,6 +74,19 @@ export function DecryptionPanel({ onDecryptionComplete }: DecryptionPanelProps) 
     }
   }, []);
 
+  const handleDeleteSessionKey = useCallback((keyId: string) => {
+    if (confirm('Are you sure you want to delete this Session Key?')) {
+      dispatch({ type: 'REMOVE_SESSION_KEY', payload: keyId });
+      if (sessionKeyId === keyId) {
+        setSessionKeyId('');
+      }
+    }
+  }, [dispatch, sessionKeyId]);
+
+  const handleSelectSessionKey = useCallback((keyId: string) => {
+    setSessionKeyId(keyId);
+  }, []);
+
   const handleDecrypt = useCallback(async () => {
     if (!encryptedData) {
       alert('Please provide encrypted data');
@@ -80,7 +94,7 @@ export function DecryptionPanel({ onDecryptionComplete }: DecryptionPanelProps) 
     }
 
     if (!sessionKeyId.trim()) {
-      alert('Please select a session key');
+      alert('Please select a Session Key');
       return;
     }
 
@@ -91,12 +105,31 @@ export function DecryptionPanel({ onDecryptionComplete }: DecryptionPanelProps) 
 
     const sessionKey = sessionKeys.get(sessionKeyId) as unknown as SealSessionKey;
     if (!sessionKey) {
-      alert('Session key not found. Please create or import the session key first.');
+      alert('Session Key not found. Please create or import a Session Key first.');
       return;
     }
 
     if (!encryptedObject) {
       alert('Failed to parse encrypted object. Please check the data format.');
+      return;
+    }
+
+    // Check if session key is expired
+    const now = Date.now();
+    if (sessionKey.expiresAt && now > sessionKey.expiresAt) {
+      alert('The selected Session Key has expired. Please create a new Session Key.');
+      return;
+    }
+
+    // Check if session key is active
+    if (!sessionKey.isActive) {
+      alert('The selected Session Key is not signed. Please sign the Session Key.');
+      return;
+    }
+
+    // Check compatibility
+    if (sessionKey.packageId !== encryptedObject.packageId) {
+      alert('The selected Session Key is not compatible with the encrypted data. Package IDs do not match.');
       return;
     }
 
@@ -252,33 +285,33 @@ export function DecryptionPanel({ onDecryptionComplete }: DecryptionPanelProps) 
         )}
 
         {/* Session Key Selection */}
-        <Flex direction="column" gap="2">
-          <Text size="3" weight="medium">Session Key</Text>
+        <Flex direction="column" gap="3">
+          <Text size="3" weight="medium">Session Key Selection</Text>
           {sessionKeysList.length > 0 ? (
-            <select
-              value={sessionKeyId}
-              onChange={(e) => setSessionKeyId(e.target.value)}
-              style={{
-                padding: '8px',
-                border: '1px solid var(--gray-6)',
-                borderRadius: '4px'
-              }}
-            >
-              <option value="">Select a session key...</option>
+            <Flex direction="column" gap="2">
               {sessionKeysList.map((key) => {
                 const sealKey = key as unknown as SealSessionKey;
                 return (
-                  <option key={sealKey.id} value={sealKey.id}>
-                    {sealKey.id} - {sealKey.packageId.substring(0, 10)}... 
-                    {sealKey.isActive ? ' ✅' : ' ⚠️'}
-                  </option>
+                  <SessionKeyInfo
+                    key={sealKey.id}
+                    sessionKey={sealKey}
+                    isSelected={sessionKeyId === sealKey.id}
+                    onSelect={() => handleSelectSessionKey(sealKey.id)}
+                    onDelete={() => handleDeleteSessionKey(sealKey.id)}
+                    encryptedObjectInfo={encryptedObject ? {
+                      packageId: encryptedObject.packageId,
+                      id: encryptedObject.id
+                    } : undefined}
+                  />
                 );
               })}
-            </select>
+            </Flex>
           ) : (
-            <Text size="2" color="gray">
-              No session keys available. Create one in the encryption panel first.
-            </Text>
+            <Card variant="surface">
+              <Text size="2" color="gray">
+                No Session Keys available. Please create one in the encryption panel first.
+              </Text>
+            </Card>
           )}
         </Flex>
 
@@ -342,7 +375,8 @@ export function DecryptionPanel({ onDecryptionComplete }: DecryptionPanelProps) 
             loading || 
             !encryptedData || 
             !sessionKeyId ||
-            !encryptedObject
+            !encryptedObject ||
+            !state.wallet.connected
           }
           size="3"
         >

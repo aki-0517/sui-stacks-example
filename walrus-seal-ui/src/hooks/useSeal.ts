@@ -426,6 +426,16 @@ export function useSeal() {
     };
   }, [state.network.sealConfig]);
 
+  const removeSessionKey = useCallback((sessionKeyId: string): boolean => {
+    try {
+      dispatch({ type: 'REMOVE_SESSION_KEY', payload: sessionKeyId });
+      return true;
+    } catch (error) {
+      handleError(error, 'removeSessionKey');
+      return false;
+    }
+  }, [dispatch, handleError]);
+
   return {
     sessionKeys: state.seal.sessionKeys,
     keyServers: state.seal.keyServers,
@@ -437,6 +447,7 @@ export function useSeal() {
     decrypt,
     createSessionKey,
     signSessionKey,
+    removeSessionKey,
     verifyKeyServers,
     fetchKeys,
     getDerivedKeys,
